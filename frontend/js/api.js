@@ -155,6 +155,7 @@ const MockDatabase = {
     const today = new Date().toISOString().split("T")[0];
     return {
       USERS: [
+        { UserID: "USR-000", Name: "Admin Hệ Thống", Email: "admin@company.com", Role: "ADMIN", Phone: "0901234500", Team: "HQ", Status: "ACTIVE" },
         { UserID: "USR-001", Name: "Quản Lý Nguyễn", Email: "manager@company.com", Role: "MANAGER", Phone: "0901234567", Team: "North Team", Status: "ACTIVE" },
         { UserID: "USR-002", Name: "Nguyễn Văn A", Email: "sales.a@company.com", Role: "SALES", Phone: "0901234568", Team: "North Team", Status: "ACTIVE" },
         { UserID: "USR-003", Name: "Trần Thị B", Email: "sales.b@company.com", Role: "SALES", Phone: "0901234569", Team: "North Team", Status: "ACTIVE" },

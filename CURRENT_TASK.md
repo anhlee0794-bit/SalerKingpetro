@@ -1,5 +1,13 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Phân Quyền Tài Khoản Theo Vai Trò (RBAC) & Quản Lý Phiên Đăng Nhập
+- [x] Tạo module cấu hình phân quyền riêng biệt: `frontend/js/permissions.js` với ma trận vai trò (ADMIN, MANAGER, SALES).
+- [x] Quản lý phiên đăng nhập bền vững (Auth State qua `localStorage`) và xây dựng Modal Đăng Nhập (Login Modal) + Modal Chuyển Vai Trò (Role Switcher Modal).
+- [x] UI Permission Guard: Ẩn/Hiện các nút nhạy cảm (Cấu hình GAS, Reset Data) chỉ dành riêng cho ADMIN; bảo vệ tab và nút chức năng.
+- [x] Thêm Tab "Quản Lý Nhân Sự & Tuyến Bán" riêng cho ADMIN trong Manager Workspace (thêm nhân sự, gán tuyến cho Sales).
+- [x] Route/Action Guard: Chặn các thao tác gọi hàm ngoài thẩm quyền (`openSettingsDialog`, `resetMockData`, `approveCustomer`).
+- [x] Bổ sung 4 unit tests kiểm thử logic RBAC trong `tests/test_logic.py` (Pass 18/18).
+
 ## Thiết Lập Skill & Quy Trình Lưu Vết Hoạt Động Cho Nhóm (Workflow Logger)
 - [x] Tạo Skill chuẩn Workspace Customization: `.agents/skills/workflow-logger/SKILL.md`.
 - [x] Tạo Template ghi nhận chi tiết: `.agents/skills/workflow-logger/references/changelog-template.md`.

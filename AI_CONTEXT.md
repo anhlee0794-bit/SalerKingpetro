@@ -25,4 +25,5 @@ Hệ thống gồm 2 thành phần chính:
 ## 3. Trạng thái hiện tại
 - Đã nâng cấp toàn diện Hệ thống Quản Lý Chăm Sóc Khách Hàng (Customer Care & Retention Engine).
 - Tự động tính toán chu kỳ chăm sóc, phát hiện cảnh báo quá hạn đỏ/cam/xanh, thu thập 4 khối dữ liệu khi ghé thăm và quản lý tồn kho/công nợ.
+- Đã hoàn thiện Hệ thống Phân Quyền Theo Vai Trò (RBAC): Ma trận quyền hạn độc lập (`frontend/js/permissions.js`), quản lý phiên Auth bền vững qua `localStorage`, phân quyền tab và nút bấm (UI Guard), chặn thao tác nhạy cảm (Action Guard) và thêm Tab Quản lý nhân sự & Phân bổ tuyến cho ADMIN.
 

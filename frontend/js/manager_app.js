@@ -27,25 +27,33 @@ const ManagerApp = {
     const container = document.getElementById("manager-view-container");
     if (!container) return;
 
+    const currentRole = (this.currentUser && this.currentUser.Role) || "MANAGER";
+    const allTabs = [
+      { id: "dashboard", label: "Tổng Quan Dashboard", icon: "layout-dashboard" },
+      { id: "map", label: "Bản Đồ & Tuyến Đường", icon: "map" },
+      { id: "timeline", label: "Chi Tiết & Timeline", icon: "clock" },
+      { id: "customers", label: "Khách Hàng", icon: "users" },
+      { id: "reports", label: "Báo Cáo & Thống Kê", icon: "bar-chart-3" },
+      { id: "users", label: "Quản Lý Nhân Sự & Tuyến", icon: "shield-check" }
+    ];
+
+    const accessibleTabs = allTabs.filter(t => {
+      return typeof PermissionService !== "undefined" ? PermissionService.canAccessTab(currentRole, t.id) : true;
+    });
+
+    if (!accessibleTabs.find(t => t.id === this.activeTab)) {
+      this.activeTab = accessibleTabs[0] ? accessibleTabs[0].id : "dashboard";
+    }
+
     container.innerHTML = `
       <div class="manager-dashboard-container">
         <!-- Tab Navigation -->
         <div class="manager-nav-tabs">
-          <button class="tab-btn ${this.activeTab === 'dashboard' ? 'active' : ''}" onclick="ManagerApp.switchTab('dashboard')">
-            ${Icons.render('layout-dashboard', { size: 18 })} Tổng Quan Dashboard
-          </button>
-          <button class="tab-btn ${this.activeTab === 'map' ? 'active' : ''}" onclick="ManagerApp.switchTab('map')">
-            ${Icons.render('map', { size: 18 })} Bản Đồ & Tuyến Đường
-          </button>
-          <button class="tab-btn ${this.activeTab === 'timeline' ? 'active' : ''}" onclick="ManagerApp.switchTab('timeline')">
-            ${Icons.render('clock', { size: 18 })} Chi Tiết & Timeline
-          </button>
-          <button class="tab-btn ${this.activeTab === 'customers' ? 'active' : ''}" onclick="ManagerApp.switchTab('customers')">
-            ${Icons.render('users', { size: 18 })} Khách Hàng
-          </button>
-          <button class="tab-btn ${this.activeTab === 'reports' ? 'active' : ''}" onclick="ManagerApp.switchTab('reports')">
-            ${Icons.render('bar-chart-3', { size: 18 })} Báo Cáo & Thống Kê
-          </button>
+          ${accessibleTabs.map(t => `
+            <button class="tab-btn ${this.activeTab === t.id ? 'active' : ''}" onclick="ManagerApp.switchTab('${t.id}')">
+              ${Icons.render(t.icon, { size: 18 })} ${t.label}
+            </button>
+          `).join("")}
         </div>
 
         <!-- Tab Content Viewport -->
@@ -57,6 +65,12 @@ const ManagerApp = {
   },
 
   async switchTab(tabName) {
+    const currentRole = (this.currentUser && this.currentUser.Role) || "MANAGER";
+    if (typeof PermissionService !== "undefined" && !PermissionService.canAccessTab(currentRole, tabName)) {
+      UI.showToast("Bạn không có quyền truy cập chức năng này!", "danger");
+      return;
+    }
+
     this.activeTab = tabName;
     this.renderLayout();
 
@@ -70,6 +84,8 @@ const ManagerApp = {
       await this.renderCustomersTab();
     } else if (tabName === "reports") {
       await this.renderReportsTab();
+    } else if (tabName === "users") {
+      await this.renderUsersTab();
     }
   },
 
@@ -1179,6 +1195,9 @@ const ManagerApp = {
   // APPROVE / REJECT CUSTOMER
   // ----------------------------------------------------
   async handleApproveCustomer(customerId, approved) {
+    if (typeof PermissionService !== "undefined" && !PermissionService.guard(this.currentUser, "APPROVE_CUSTOMER", "Chỉ Quản lý hoặc Quản trị viên mới có quyền phê duyệt điểm bán!")) {
+      return;
+    }
     const actionText = approved ? "PHÊ DUYỆT" : "TỪ CHỐI";
     if (!confirm(`Bạn có chắc muốn ${actionText} khách hàng này?`)) return;
 
@@ -1560,5 +1579,323 @@ const ManagerApp = {
     document.body.removeChild(link);
 
     UI.showToast("Đã xuất báo cáo hiệu suất ra file CSV!", "success");
+  },
+
+  // ----------------------------------------------------
+  // TAB 6: USERS MANAGEMENT & ROUTE ALLOCATION (ADMIN ONLY)
+  // ----------------------------------------------------
+  async renderUsersTab() {
+    const content = document.getElementById("manager-tab-content");
+    if (!content) return;
+
+    if (typeof PermissionService !== "undefined" && !PermissionService.guard(this.currentUser, "MANAGE_USERS", "Chỉ ADMIN mới có quyền quản lý nhân sự và phân bổ tuyến!")) {
+      return;
+    }
+
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách nhân sự & phân bổ tuyến...</div>`;
+
+    const usersRes = await ApiService.getUsers("ADMIN");
+    const users = (usersRes && usersRes.users) || (typeof App !== "undefined" ? App.users : []);
+    const custRes = await ApiService.getCustomers(null, "ADMIN");
+    const allCustomers = (custRes && custRes.customers) || [];
+
+    const totalUsers = users.length;
+    const adminCount = users.filter(u => u.Role === "ADMIN").length;
+    const managerCount = users.filter(u => u.Role === "MANAGER").length;
+    const salesCount = users.filter(u => u.Role === "SALES").length;
+    const assignedCustCount = allCustomers.filter(c => c.AssignedSalesID && c.AssignedSalesID !== "ALL").length;
+    const unassignedCustCount = allCustomers.length - assignedCustCount;
+
+    let rowsHtml = users.map(u => {
+      const assignedCustomers = allCustomers.filter(c => c.AssignedSalesID === u.UserID);
+      const roleMeta = typeof PermissionService !== "undefined" ? PermissionService.getMeta(u.Role) : { badgeClass: "role-pill", icon: "user", color: "#64748b", bg: "#f1f5f9" };
+
+      return `
+        <tr>
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <div style="width: 34px; height: 34px; border-radius: 50%; background: ${roleMeta.bg}; color: ${roleMeta.color}; display: flex; align-items: center; justify-content: center; font-weight: 700;">
+                ${u.Name ? u.Name.charAt(0) : 'U'}
+              </div>
+              <div>
+                <strong style="font-size: 0.95rem; color: var(--text-main);">${u.Name}</strong>
+                <div style="font-size: 0.78rem; color: var(--text-muted);">${u.UserID} • ${u.Email}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <span class="role-pill ${roleMeta.badgeClass}" style="font-size: 0.75rem;">
+              ${Icons.render(roleMeta.icon, { size: 12 })} ${u.Role}
+            </span>
+          </td>
+          <td>
+            <span style="font-size: 0.88rem; font-weight: 500;">${u.Team || 'Toàn hệ thống'}</span>
+          </td>
+          <td>
+            <span style="font-size: 0.85rem; color: var(--text-muted);">${u.Phone || '--'}</span>
+          </td>
+          <td>
+            ${u.Role === 'SALES' ? `
+              <span class="status-badge badge-working" style="background: #e0f2fe; color: #0369a1; font-weight: 700;">
+                ${assignedCustomers.length} điểm bán
+              </span>
+            ` : `
+              <span style="color: var(--text-muted); font-size: 0.82rem;">Giám sát toàn tuyến</span>
+            `}
+          </td>
+          <td>
+            <span class="status-badge ${u.Status === 'ACTIVE' || !u.Status ? 'badge-working' : 'badge-completed'}" style="font-size: 0.72rem;">
+              ${u.Status || 'ACTIVE'}
+            </span>
+          </td>
+          <td>
+            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+              <button class="btn-action-inline" onclick="App.onUserSelectChange('${u.UserID}')" title="Chuyển ngay sang tài khoản này để kiểm tra" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                ${Icons.render('user-check', { size: 13 })} Đăng nhập thử
+              </button>
+              ${u.Role === 'SALES' ? `
+                <button class="btn-action-inline btn-edit" onclick="ManagerApp.showReassignRouteModal('${u.UserID}')" title="Gán hoặc phân bổ lại tuyến khách hàng" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                  ${Icons.render('map-pin', { size: 13 })} Phân tuyến
+                </button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    content.innerHTML = `
+      <div class="manager-sub-header" style="margin-bottom: 1.25rem;">
+        <div>
+          <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            ${Icons.render('shield-check', { size: 22, color: '#7e22ce' })} Quản Lý Danh Sách Nhân Sự & Phân Bổ Tuyến
+          </h2>
+          <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
+            Đặc quyền ADMIN: Quản lý phân quyền tài khoản (RBAC), tạo nhân sự mới và phân bổ tuyến đường cho Sales.
+          </div>
+        </div>
+        <button class="btn-action-inline" onclick="ManagerApp.showAddUserModal()" style="background: var(--primary); color: white; border: none; padding: 0.6rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+          ${Icons.render('user-plus', { size: 16 })} + Thêm Nhân Sự Mới
+        </button>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">TỔNG NHÂN SỰ</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 4px;">${totalUsers}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">${adminCount} Admin • ${managerCount} Quản lý</div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: #0369a1;">SALES ĐI THỊ TRƯỜNG</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #0369a1; margin-top: 4px;">${salesCount}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Nhân viên tác nghiệp thực tế</div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: #059669;">ĐÃ PHÂN BỔ TUYẾN</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #059669; margin-top: 4px;">${assignedCustCount}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Điểm bán đã có Sales phụ trách</div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: #d97706;">CHƯA PHÂN TUYẾN</div>
+          <div style="font-size: 1.6rem; font-weight: 800; color: #d97706; margin-top: 4px;">${unassignedCustCount}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Cần gán cho nhân sự phụ trách</div>
+        </div>
+      </div>
+
+      <!-- Users Table -->
+      <div class="table-responsive" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;">
+        <table class="custom-table">
+          <thead>
+            <tr>
+              <th>Nhân Sự</th>
+              <th>Vai Trò (Role)</th>
+              <th>Đội Nhóm (Team)</th>
+              <th>Số Điện Thoại</th>
+              <th>Tuyến Bán Hàng</th>
+              <th>Trạng Thái</th>
+              <th>Hành Động</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  showAddUserModal() {
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <h3 style="font-weight: 800; font-size: 1.2rem; color: var(--text-main); margin: 0;">+ Thêm Nhân Sự Mới</h3>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 0.75rem;">
+        <label class="form-label">Họ và Tên (*)</label>
+        <input type="text" id="new-user-name" class="form-control" placeholder="Ví dụ: Hoàng Văn D" required />
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <div class="form-group">
+          <label class="form-label">Email (*)</label>
+          <input type="email" id="new-user-email" class="form-control" placeholder="sales.d@company.com" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Số Điện Thoại</label>
+          <input type="text" id="new-user-phone" class="form-control" placeholder="0901234571" />
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+        <div class="form-group">
+          <label class="form-label">Vai Trò Phân Quyền (*)</label>
+          <select id="new-user-role" class="form-control">
+            <option value="SALES" selected>SALES (Nhân viên thị trường)</option>
+            <option value="MANAGER">MANAGER (Quản lý vùng)</option>
+            <option value="ADMIN">ADMIN (Quản trị viên hệ thống)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Đội Nhóm (Team)</label>
+          <input type="text" id="new-user-team" class="form-control" placeholder="North Team / South Team" value="North Team" />
+        </div>
+      </div>
+
+      <button class="btn-action-large btn-meet-customer" style="width: 100%;" onclick="ManagerApp.saveNewUser()">
+        LƯU NHÂN SỰ
+      </button>
+    `;
+
+    UI.showModal(content);
+  },
+
+  async saveNewUser() {
+    const name = (document.getElementById("new-user-name")?.value || "").trim();
+    const email = (document.getElementById("new-user-email")?.value || "").trim();
+    const phone = (document.getElementById("new-user-phone")?.value || "").trim();
+    const role = document.getElementById("new-user-role")?.value || "SALES";
+    const team = (document.getElementById("new-user-team")?.value || "North Team").trim();
+
+    if (!name || !email) {
+      return UI.showToast("Vui lòng nhập tên và email nhân sự!", "danger");
+    }
+
+    const newUser = {
+      UserID: "USR-" + String(Date.now()).substring(8),
+      Name: name,
+      Email: email,
+      Phone: phone,
+      Role: role,
+      Team: team,
+      Status: "ACTIVE"
+    };
+
+    if (typeof App !== "undefined" && App.users) {
+      App.users.push(newUser);
+    }
+
+    if (typeof MockDatabase !== "undefined") {
+      const db = MockDatabase.getDB();
+      if (db.USERS) {
+        db.USERS.push(newUser);
+        MockDatabase.saveDB(db);
+      }
+    }
+
+    UI.closeModal();
+    UI.showToast(`Đã thêm nhân sự ${name} (${role}) thành công!`, "success");
+    if (typeof App !== "undefined" && typeof App.renderRoleSwitcher === "function") {
+      App.renderRoleSwitcher();
+    }
+    this.renderUsersTab();
+  },
+
+  async showReassignRouteModal(salesId) {
+    const targetUser = (typeof App !== "undefined" && App.users) ? App.users.find(u => u.UserID === salesId) : null;
+    if (!targetUser) return UI.showToast("Không tìm thấy nhân sự", "danger");
+
+    UI.showLoading("Đang tải danh sách điểm bán...");
+    const custRes = await ApiService.getCustomers(null, "ADMIN");
+    const allCustomers = (custRes && custRes.customers) || [];
+    UI.hideLoading();
+
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div>
+          <h3 style="font-weight: 800; font-size: 1.2rem; color: var(--text-main); margin: 0;">
+            Phân Bổ Tuyến Cho: ${targetUser.Name}
+          </h3>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">
+            Mã: ${targetUser.UserID} • Vai trò: ${targetUser.Role}
+          </div>
+        </div>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+        Chọn các điểm bán khách hàng để giao cho <strong>${targetUser.Name}</strong> phụ trách:
+      </div>
+
+      <div style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; background: var(--bg-subtle);">
+        ${allCustomers.map(c => {
+          const isAssigned = c.AssignedSalesID === salesId;
+          const assignedOther = c.AssignedSalesID && c.AssignedSalesID !== salesId && typeof App !== "undefined" ? App.users.find(u => u.UserID === c.AssignedSalesID) : null;
+          return `
+            <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; background: var(--bg-card); border-radius: 6px; cursor: pointer; border: 1px solid var(--border);">
+              <input type="checkbox" class="cust-route-checkbox" value="${c.CustomerID}" ${isAssigned ? 'checked' : ''} style="width: 17px; height: 17px;" />
+              <div style="flex: 1;">
+                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">${c.CustomerName}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                  ${c.Address} • Loại: <strong>${c.CustomerType || 'NORMAL'}</strong>
+                  ${assignedOther ? `<span style="color: #b45309; margin-left: 0.5rem;">(Hiện đang gán: ${assignedOther.Name})</span>` : ''}
+                </div>
+              </div>
+            </label>
+          `;
+        }).join("")}
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+        <button class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.5rem 1rem;">Hủy</button>
+        <button class="btn-action-large btn-meet-customer" onclick="ManagerApp.saveReassignedRoutes('${salesId}')" style="padding: 0.5rem 1.25rem;">
+          LƯU PHÂN TUYẾN
+        </button>
+      </div>
+    `;
+
+    UI.showModal(content);
+  },
+
+  async saveReassignedRoutes(salesId) {
+    const checkboxes = document.querySelectorAll(".cust-route-checkbox");
+    const selectedIds = new Set();
+    checkboxes.forEach(cb => {
+      if (cb.checked) selectedIds.add(cb.value);
+    });
+
+    UI.showLoading("Đang cập nhật phân bổ tuyến...");
+    if (typeof MockDatabase !== "undefined") {
+      const db = MockDatabase.getDB();
+      if (db.CUSTOMERS) {
+        db.CUSTOMERS.forEach(c => {
+          if (selectedIds.has(c.CustomerID)) {
+            c.AssignedSalesID = salesId;
+          } else if (c.AssignedSalesID === salesId) {
+            c.AssignedSalesID = "";
+          }
+        });
+        MockDatabase.saveDB(db);
+      }
+    }
+
+    UI.hideLoading();
+    UI.closeModal();
+    UI.showToast("Đã cập nhật phân bổ tuyến bán hàng thành công!", "success");
+    this.renderUsersTab();
   }
 };

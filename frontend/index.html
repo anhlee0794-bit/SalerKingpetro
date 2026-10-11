@@ -35,11 +35,15 @@
         </div>
       </div>
 
-      <div class="user-profile-badge">
+      <div class="user-profile-badge" id="header-user-profile" style="cursor: pointer;" onclick="App.showUserSwitcherModal()" title="Bấm để đổi tài khoản hoặc đăng xuất">
         <div style="text-align: right; display: flex; flex-direction: column;">
           <strong id="current-user-name" style="font-size: 0.9rem;">Nguyễn Văn A</strong>
+          <span id="current-user-team" style="font-size: 0.72rem; color: var(--text-muted);">North Team</span>
         </div>
         <span id="current-user-role-badge" class="role-pill role-sales">SALES</span>
+        <button id="btn-header-login-switch" class="btn-action-inline" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="event.stopPropagation(); App.showUserSwitcherModal()">
+          <span id="header-login-btn-icon"></span> Đổi vai trò
+        </button>
       </div>
     </div>
   </header>
@@ -63,6 +67,7 @@
   <script src="js/icons.js"></script>
   <script src="js/geo.js"></script>
   <script src="js/products.js"></script>
+  <script src="js/permissions.js"></script>
   <script src="js/api.js"></script>
   <script src="js/sales_app.js"></script>
   <script src="js/manager_app.js"></script>

@@ -255,5 +255,109 @@ class TestProductUnitConversions(unittest.TestCase):
         # 4 Xô (4 * 18 = 72 Chai) = 3 Thùng
         self.assertEqual(convert_to_carton(4, "Xô"), 3.0)
 
+# ====================================================
+# RBAC PERMISSIONS & FILTERING LOGIC
+# ====================================================
+ROLES = {
+    "ADMIN": "ADMIN",
+    "MANAGER": "MANAGER",
+    "SALES": "SALES"
+}
+
+PERMISSIONS = {
+    "MANAGE_SYSTEM_SETTINGS": [ROLES["ADMIN"]],
+    "RESET_DATABASE": [ROLES["ADMIN"]],
+    "MANAGE_USERS": [ROLES["ADMIN"]],
+    "VIEW_ALL_CUSTOMERS": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "VIEW_ALL_REPORTS": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "APPROVE_CUSTOMER": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "FIELD_CHECKIN_CHECKOUT": [ROLES["SALES"], ROLES["ADMIN"]],
+    "UPDATE_CARE_DETAILS": [ROLES["SALES"], ROLES["ADMIN"]]
+}
+
+TAB_ACCESS = {
+    "dashboard": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "map": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
+    "timeline": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
+    "customers": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
+    "reports": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "users": [ROLES["ADMIN"]]
+}
+
+def check_permission(role, permission_key):
+    allowed = PERMISSIONS.get(permission_key, [])
+    return role in allowed
+
+def can_access_tab(role, tab_key):
+    allowed = TAB_ACCESS.get(tab_key, [])
+    return role in allowed
+
+def filter_customers_by_role(customers, user):
+    role = user.get("Role")
+    user_id = user.get("UserID")
+    if role in (ROLES["ADMIN"], ROLES["MANAGER"]):
+        return customers
+    return [c for c in customers if not c.get("AssignedSalesID") or c.get("AssignedSalesID") == user_id]
+
+class TestRoleBasedAccessControl(unittest.TestCase):
+    def setUp(self):
+        self.admin = {"UserID": "USR-000", "Name": "Admin", "Role": "ADMIN"}
+        self.manager = {"UserID": "USR-001", "Name": "Manager", "Role": "MANAGER"}
+        self.sales_a = {"UserID": "USR-002", "Name": "Sales A", "Role": "SALES"}
+        self.sales_b = {"UserID": "USR-003", "Name": "Sales B", "Role": "SALES"}
+        self.mock_customers = [
+            {"CustomerID": "CUST-001", "CustomerName": "Minh Phat", "AssignedSalesID": "USR-002"},
+            {"CustomerID": "CUST-002", "CustomerName": "VinaMart", "AssignedSalesID": "USR-002"},
+            {"CustomerID": "CUST-003", "CustomerName": "Bach Hoa A Chau", "AssignedSalesID": "USR-003"},
+            {"CustomerID": "CUST-004", "CustomerName": "Sao Mai", "AssignedSalesID": ""},
+        ]
+
+    def test_admin_has_full_permissions(self):
+        self.assertTrue(check_permission(self.admin["Role"], "MANAGE_SYSTEM_SETTINGS"))
+        self.assertTrue(check_permission(self.admin["Role"], "RESET_DATABASE"))
+        self.assertTrue(check_permission(self.admin["Role"], "MANAGE_USERS"))
+        self.assertTrue(check_permission(self.admin["Role"], "VIEW_ALL_CUSTOMERS"))
+        self.assertTrue(can_access_tab(self.admin["Role"], "users"))
+        self.assertTrue(can_access_tab(self.admin["Role"], "dashboard"))
+
+    def test_manager_has_monitoring_but_no_core_settings(self):
+        self.assertTrue(check_permission(self.manager["Role"], "VIEW_ALL_CUSTOMERS"))
+        self.assertTrue(check_permission(self.manager["Role"], "VIEW_ALL_REPORTS"))
+        self.assertTrue(check_permission(self.manager["Role"], "APPROVE_CUSTOMER"))
+        # Core settings restricted
+        self.assertFalse(check_permission(self.manager["Role"], "MANAGE_SYSTEM_SETTINGS"))
+        self.assertFalse(check_permission(self.manager["Role"], "RESET_DATABASE"))
+        self.assertFalse(check_permission(self.manager["Role"], "MANAGE_USERS"))
+        self.assertFalse(can_access_tab(self.manager["Role"], "users"))
+        self.assertTrue(can_access_tab(self.manager["Role"], "dashboard"))
+
+    def test_sales_permissions_isolated_to_field_work(self):
+        self.assertTrue(check_permission(self.sales_a["Role"], "FIELD_CHECKIN_CHECKOUT"))
+        self.assertTrue(check_permission(self.sales_a["Role"], "UPDATE_CARE_DETAILS"))
+        self.assertFalse(check_permission(self.sales_a["Role"], "VIEW_ALL_CUSTOMERS"))
+        self.assertFalse(check_permission(self.sales_a["Role"], "MANAGE_SYSTEM_SETTINGS"))
+        self.assertFalse(check_permission(self.sales_a["Role"], "APPROVE_CUSTOMER"))
+        self.assertFalse(can_access_tab(self.sales_a["Role"], "users"))
+        self.assertFalse(can_access_tab(self.sales_a["Role"], "reports"))
+
+    def test_customer_filtering_for_sales_isolation(self):
+        # Sales A should only see CUST-001, CUST-002, and unassigned CUST-004 (total 3)
+        custs_a = filter_customers_by_role(self.mock_customers, self.sales_a)
+        self.assertEqual(len(custs_a), 3)
+        self.assertIn("CUST-001", [c["CustomerID"] for c in custs_a])
+        self.assertIn("CUST-002", [c["CustomerID"] for c in custs_a])
+        self.assertNotIn("CUST-003", [c["CustomerID"] for c in custs_a])
+
+        # Sales B should only see CUST-003 and unassigned CUST-004 (total 2)
+        custs_b = filter_customers_by_role(self.mock_customers, self.sales_b)
+        self.assertEqual(len(custs_b), 2)
+        self.assertIn("CUST-003", [c["CustomerID"] for c in custs_b])
+        self.assertNotIn("CUST-001", [c["CustomerID"] for c in custs_b])
+
+        # Admin and Manager see all 4
+        self.assertEqual(len(filter_customers_by_role(self.mock_customers, self.admin)), 4)
+        self.assertEqual(len(filter_customers_by_role(self.mock_customers, self.manager)), 4)
+
 if __name__ == "__main__":
     unittest.main()
+

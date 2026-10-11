@@ -1,5 +1,22 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-10-11] - Phân Quyền Tài Khoản Theo Vai Trò (RBAC), Quản Lý Phiên Đăng Nhập & Phân Bổ Tuyến
+- **Mục đích / Bối cảnh**: Triển khai hệ thống phân quyền chặt chẽ Role-Based Access Control (RBAC) cho 3 vai trò: ADMIN (Toàn quyền quản trị & nhân sự), MANAGER (Giám sát đội ngũ, bản đồ, timeline, báo cáo), SALES (Tác nghiệp đi tuyến cá nhân, chỉ xem khách hàng và timeline của mình).
+- **Các file tạo mới / thay đổi (Affected Files)**:
+  - `frontend/js/permissions.js`: Module cấu hình RBAC độc lập định nghĩa ma trận quyền hạn (`PERMISSIONS`, `TAB_PERMISSIONS`), metadata vai trò và các helper guards (`guard`, `filterCustomers`, `canAccessTab`).
+  - `frontend/js/app.js`: Quản lý Auth State bền vững (`localStorage` qua `AUTH_STORAGE_KEY`), giao diện thanh chọn vai trò trực quan, Modal chuyển vai trò (Role Switcher Modal), Modal Đăng Nhập (Login Modal 1-click & Form Email/Password), Action Guard cho các thao tác nhạy cảm (Cấu hình GAS, Reset Data).
+  - `frontend/js/manager_app.js`: Tab navigation động theo quyền, bổ sung Tab 6 "Quản Lý Nhân Sự & Tuyến Bán" riêng cho ADMIN (thêm nhân sự mới, gán/chuyển đổi tuyến khách hàng), Action Guard cho nút Duyệt khách hàng (`handleApproveCustomer`).
+  - `frontend/js/api.js`: Bổ sung tài khoản mẫu `USR-000` (ADMIN) vào `USERS` seed data của `MockDatabase`.
+  - `frontend/index.html`: Nhúng `js/permissions.js`, nâng cấp header account badge hiển thị tên, đội nhóm, badge vai trò và nút "Đổi vai trò" tương tác.
+  - `tests/test_logic.py`: Bổ sung 4 unit tests kiểm thử quyền hạn RBAC và cô lập dữ liệu khách hàng theo từng vai trò (18/18 tests PASS).
+- **Chi tiết kỹ thuật**:
+  - `PermissionService.guard(user, permission, message)`: Chặn các thao tác gọi hàm trái phép với thông báo lỗi thân thiện.
+  - Phân vùng dữ liệu: Sales Rep chỉ xem khách hàng được gán cho mình (`filterCustomers`), Manager và Admin xem toàn tuyến.
+  - Tab "Quản Lý Nhân Sự & Tuyến" cho ADMIN: Hiển thị thống kê tổng nhân sự, số lượng điểm bán đã phân tuyến/chưa phân tuyến, và modal phân bổ tuyến bán hàng (`showReassignRouteModal`).
+- **Kết quả kiểm thử & xác minh**:
+  - `python tests/test_logic.py`: 18/18 tests PASS.
+  - Giao diện phản hồi chuẩn xác khi chuyển đổi giữa ADMIN, MANAGER, SALES.
+
 ## [2026-10-11] - Tích Hợp Skill Lưu Quy Trình Làm Việc (Workflow Logger) & Đồng Bộ Nhóm
 - **Mục đích / Bối cảnh**: Thiết lập quy chuẩn bắt buộc lưu vết mọi hoạt động/thay đổi vào các file Markdown dự án, đảm bảo bất kỳ thành viên nào trong nhóm khi sử dụng AI đều có thể tự động đọc và kế thừa bối cảnh lịch sử mà không làm đứt gãy quy trình.
 - **Các file tạo mới / thay đổi (Affected Files)**:
