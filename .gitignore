@@ -29,7 +29,6 @@ ENV/
 # Google Apps Script / Clasp Credentials
 # ==========================================
 .clasprc.json
-# Bỏ comment dòng dưới nếu muốn giữ riêng Script ID / Deployment ID cho từng máy:
 # .clasp.json
 
 # ==========================================

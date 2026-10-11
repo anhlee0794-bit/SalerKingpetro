@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Sales Field Management - Hệ thống quản lý hoạt động thực tế của nhân viên Sales đi thị trường tối ưu dưới 10 người." />
+  <title>Sales Field Management - Hệ Thống Quản Lý Sales Thị Trường</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+  <!-- Application Stylesheet -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Top Demo Switcher Bar -->
+  <div id="role-switcher-container"></div>
+
+  <!-- Main Navigation Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-logo">
+        <div class="brand-badge">
+          <svg class="lucide-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <div>
+          <h1 style="font-size: 1.15rem; font-weight: 800; line-height: 1.2;">SALES FIELD</h1>
+          <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">FIELD MANAGEMENT SYSTEM</div>
+        </div>
+      </div>
+
+      <div class="user-profile-badge">
+        <div style="text-align: right; display: flex; flex-direction: column;">
+          <strong id="current-user-name" style="font-size: 0.9rem;">Nguyễn Văn A</strong>
+        </div>
+        <span id="current-user-role-badge" class="role-pill role-sales">SALES</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dynamic Content Workspaces -->
+  <main class="main-wrapper">
+    <!-- Sales Mobile Workspace -->
+    <section id="sales-view-container" style="display: none;"></section>
+
+    <!-- Manager Desktop Workspace -->
+    <section id="manager-view-container" style="display: none;"></section>
+  </main>
+
+  <!-- Leaflet Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Application Scripts -->
+  <script src="js/icons.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/products.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/sales_app.js"></script>
+  <script src="js/manager_app.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

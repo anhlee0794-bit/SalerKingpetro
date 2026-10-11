@@ -1,0 +1,12 @@
+{
+  "name": "sales-field-management",
+  "version": "1.0.0",
+  "description": "Sales Field Management System using Google Apps Script, Google Sheets, HTML5, CSS3, JavaScript",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
