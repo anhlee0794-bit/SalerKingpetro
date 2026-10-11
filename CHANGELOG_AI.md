@@ -1,5 +1,20 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-10-11] - Tích Hợp Skill Lưu Quy Trình Làm Việc (Workflow Logger) & Đồng Bộ Nhóm
+- **Mục đích / Bối cảnh**: Thiết lập quy chuẩn bắt buộc lưu vết mọi hoạt động/thay đổi vào các file Markdown dự án, đảm bảo bất kỳ thành viên nào trong nhóm khi sử dụng AI đều có thể tự động đọc và kế thừa bối cảnh lịch sử mà không làm đứt gãy quy trình.
+- **Các file tạo mới / thay đổi (Affected Files)**:
+  - `.agents/skills/workflow-logger/SKILL.md`: Định nghĩa kỹ năng Workspace Skill chuẩn của Antigravity với hướng dẫn 3 giai đoạn (Đọc bối cảnh -> Thực thi an toàn -> Bắt buộc lưu vết vào file MD).
+  - `.agents/skills/workflow-logger/references/changelog-template.md`: Mẫu template chuẩn để AI ghi nhận lịch sử vào `CHANGELOG_AI.md`.
+  - `AGENTS.md`: File quy tắc Workspace Rules tự động kích hoạt cho mọi AI khi truy cập dự án.
+  - `CHANGELOG_AI.md`: Bổ sung ghi nhận lịch sử thay đổi phiên hiện tại.
+  - `CURRENT_TASK.md`: Bổ sung trạng thái hoàn thành đầu việc thiết lập skill lưu quy trình.
+- **Chi tiết kỹ thuật**:
+  - Tích hợp chuẩn Progressive Disclosure của Antigravity: Skill được đặt trong `.agents/skills/` để tự động chia sẻ qua Git cho toàn bộ nhóm.
+  - Ràng buộc 4 file Markdown trọng tâm: `AI_RULES.md`, `AI_CONTEXT.md`, `CURRENT_TASK.md`, `CHANGELOG_AI.md`.
+- **Kết quả kiểm thử & xác minh**:
+  - Cấu trúc skill hợp lệ theo định dạng YAML Frontmatter chuẩn.
+  - Các file rule `AGENTS.md` được đặt ở thư mục gốc để mọi công cụ AI (Antigravity, Cursor, Copilot, Claude) đều tự động nhận diện.
+
 ## [2026-09-19] - Loại Bỏ Ràng Buộc Khoảng Cách Cho Sales & Tác Nghiệp Tức Thì
 - **Loại bỏ ràng buộc khoảng cách geofence đối với Sales**:
   - Gỡ bỏ điều kiện chặn check-in (`if distance > radius return outOfRadius`) trong `frontend/js/api.js` và `backend/Code.js`.

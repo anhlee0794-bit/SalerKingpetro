@@ -1,5 +1,11 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Thiết Lập Skill & Quy Trình Lưu Vết Hoạt Động Cho Nhóm (Workflow Logger)
+- [x] Tạo Skill chuẩn Workspace Customization: `.agents/skills/workflow-logger/SKILL.md`.
+- [x] Tạo Template ghi nhận chi tiết: `.agents/skills/workflow-logger/references/changelog-template.md`.
+- [x] Thiết lập Rule bắt buộc cho mọi AI agent trong repo: `AGENTS.md`.
+- [x] Cập nhật lịch sử thay đổi `CHANGELOG_AI.md` và kiểm tra toàn bộ liên kết.
+
 ## Sửa Lỗi Icon Dấu Hỏi Chấm (`?`) Trên Các Nút Bấm Thao Tác Sales
 - [x] **Xác định nguyên nhân gốc rễ**: `Icons.render` trong `frontend/js/icons.js` mặc định fallback về `help-circle` (`?`) khi tên icon không có trong bảng định nghĩa `Icons.definitions`. Các icon `edit-3`, `edit`, `x-circle`, `plus-circle`, `boxes`, `info` bị thiếu khai báo.
 - [x] **Bổ sung đầy đủ định nghĩa Lucide Icons chuẩn**:
