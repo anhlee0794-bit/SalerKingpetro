@@ -33,6 +33,8 @@ const ManagerApp = {
       { id: "map", label: "Bản Đồ & Tuyến Đường", icon: "map" },
       { id: "timeline", label: "Chi Tiết & Timeline", icon: "clock" },
       { id: "customers", label: "Khách Hàng", icon: "users" },
+      { id: "approvals", label: "Phê Duyệt Thay Đổi", icon: "file-check" },
+      { id: "products", label: "Quản Lý Hàng Hóa", icon: "package" },
       { id: "reports", label: "Báo Cáo & Thống Kê", icon: "bar-chart-3" },
       { id: "users", label: "Quản Lý Nhân Sự & Tuyến", icon: "shield-check" }
     ];
@@ -82,6 +84,10 @@ const ManagerApp = {
       await this.renderTimelineTab();
     } else if (tabName === "customers") {
       await this.renderCustomersTab();
+    } else if (tabName === "approvals") {
+      await this.renderApprovalsTab();
+    } else if (tabName === "products") {
+      await this.renderProductsTab();
     } else if (tabName === "reports") {
       await this.renderReportsTab();
     } else if (tabName === "users") {
@@ -1897,5 +1903,592 @@ const ManagerApp = {
     UI.closeModal();
     UI.showToast("Đã cập nhật phân bổ tuyến bán hàng thành công!", "success");
     this.renderUsersTab();
+  },
+
+  // ----------------------------------------------------
+  // TAB 5: PHÊ DUYỆT THAY ĐỔI THÔNG TIN KHÁCH HÀNG (APPROVAL FLOW)
+  // ----------------------------------------------------
+  approvalsFilter: "ALL", // "ALL", "PENDING", "APPROVED", "REJECTED"
+
+  async renderApprovalsTab() {
+    const content = document.getElementById("manager-tab-content");
+    if (!content) return;
+
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách yêu cầu phê duyệt...</div>`;
+
+    const res = await ApiService.getCustomerUpdateRequests();
+    const requests = (res && res.success && res.data) ? res.data : [];
+
+    // Filter
+    let filtered = requests;
+    if (this.approvalsFilter !== "ALL") {
+      filtered = requests.filter(r => r.Status === this.approvalsFilter);
+    }
+
+    const pendingCount = requests.filter(r => r.Status === "PENDING").length;
+    const approvedCount = requests.filter(r => r.Status === "APPROVED").length;
+    const rejectedCount = requests.filter(r => r.Status === "REJECTED").length;
+
+    content.innerHTML = `
+      <div style="padding: 1.25rem;">
+        <!-- Header & Stats -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 style="font-size: 1.3rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">
+              Phê Duyệt Thay Đổi Thông Tin Khách Hàng
+            </h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+              Kiểm tra và phê duyệt các đề xuất cập nhật SĐT, địa chỉ, người liên hệ do nhân viên Sales gửi lên.
+            </p>
+          </div>
+          <!-- Filter Badges -->
+          <div style="display: flex; gap: 0.5rem; background: var(--bg-card); padding: 0.3rem 0.5rem; border-radius: 8px; border: 1px solid var(--border);">
+            <button class="btn-filter ${this.approvalsFilter === 'ALL' ? 'active' : ''}" onclick="ManagerApp.filterApprovals('ALL')" style="padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: none; background: ${this.approvalsFilter === 'ALL' ? 'var(--primary)' : 'transparent'}; color: ${this.approvalsFilter === 'ALL' ? '#fff' : 'var(--text-main)'};">
+              Tất cả (${requests.length})
+            </button>
+            <button class="btn-filter ${this.approvalsFilter === 'PENDING' ? 'active' : ''}" onclick="ManagerApp.filterApprovals('PENDING')" style="padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: none; background: ${this.approvalsFilter === 'PENDING' ? '#f59e0b' : 'transparent'}; color: ${this.approvalsFilter === 'PENDING' ? '#fff' : 'var(--text-main)'};">
+              Chờ duyệt (${pendingCount})
+            </button>
+            <button class="btn-filter ${this.approvalsFilter === 'APPROVED' ? 'active' : ''}" onclick="ManagerApp.filterApprovals('APPROVED')" style="padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: none; background: ${this.approvalsFilter === 'APPROVED' ? '#10b981' : 'transparent'}; color: ${this.approvalsFilter === 'APPROVED' ? '#fff' : 'var(--text-main)'};">
+              Đã duyệt (${approvedCount})
+            </button>
+            <button class="btn-filter ${this.approvalsFilter === 'REJECTED' ? 'active' : ''}" onclick="ManagerApp.filterApprovals('REJECTED')" style="padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; border: none; background: ${this.approvalsFilter === 'REJECTED' ? '#ef4444' : 'transparent'}; color: ${this.approvalsFilter === 'REJECTED' ? '#fff' : 'var(--text-main)'};">
+              Từ chối (${rejectedCount})
+            </button>
+          </div>
+        </div>
+
+        <!-- Request List Cards -->
+        ${filtered.length === 0 ? `
+          <div style="background: var(--bg-card); border-radius: 12px; padding: 3rem; text-align: center; border: 1px dashed var(--border);">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem; opacity: 0.4;">📋</div>
+            <div style="font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">Không có yêu cầu nào trong danh mục này</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">Các đề xuất sửa đổi thông tin khách hàng từ Sales sẽ hiển thị tại đây</div>
+          </div>
+        ` : `
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            ${filtered.map(req => {
+              const isPending = req.Status === "PENDING";
+              const isApproved = req.Status === "APPROVED";
+              const isRejected = req.Status === "REJECTED";
+
+              const oldData = req.OldData || {};
+              const newData = req.NewData || {};
+
+              const statusBadge = isPending 
+                ? `<span style="background: #fef3c7; color: #b45309; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fde68a;">⏳ Chờ Phê Duyệt</span>`
+                : isApproved 
+                ? `<span style="background: #d1fae5; color: #047857; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; border: 1px solid #a7f3d0;">✓ Đã Chấp Thuận</span>`
+                : `<span style="background: #fee2e2; color: #b91c1c; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fecaca;">✕ Đã Từ Chối</span>`;
+
+              return `
+                <div style="background: var(--bg-card); border: 1px solid ${isPending ? 'var(--primary)' : 'var(--border)'}; border-radius: 12px; padding: 1.25rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04); transition: all 0.2s;">
+                  <!-- Top Row: Customer info & status -->
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <span style="font-weight: 700; font-size: 1.05rem; color: var(--text-main);">${req.CustomerName}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted); background: var(--bg-subtle); padding: 0.15rem 0.4rem; border-radius: 4px;">ID: ${req.CustomerID}</span>
+                      </div>
+                      <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.75rem;">
+                        <span>👤 Đề xuất: <strong>${req.SalesName}</strong> (${req.SalesID})</span>
+                        <span>🕒 ${new Date(req.CreatedAt).toLocaleString('vi-VN')}</span>
+                      </div>
+                    </div>
+                    <div>${statusBadge}</div>
+                  </div>
+
+                  <!-- Reason Box -->
+                  ${req.Reason ? `
+                    <div style="background: var(--bg-subtle); padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.82rem; color: var(--text-main); margin-bottom: 1rem; border-left: 3px solid var(--primary);">
+                      <strong>Lý do từ Sales:</strong> ${req.Reason}
+                    </div>
+                  ` : ''}
+
+                  <!-- Old vs New Comparison (Diff Viewer) -->
+                  <div style="margin-bottom: 1rem;">
+                    <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                      So Sánh Thay Đổi (Cũ vs Mới):
+                    </div>
+                    <div class="diff-container">
+                      <!-- Column Old -->
+                      <div class="diff-column diff-old">
+                        <div class="diff-header old">DỮ LIỆU HIỆN TẠI (CŨ)</div>
+                        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                          <div><span style="color: var(--text-muted);">SĐT:</span> <strong>${oldData.Phone || '—'}</strong></div>
+                          <div><span style="color: var(--text-muted);">Người liên hệ:</span> <strong>${oldData.ContactPerson || '—'}</strong></div>
+                          <div><span style="color: var(--text-muted);">Địa chỉ:</span> <strong>${oldData.Address || '—'}</strong></div>
+                          <div><span style="color: var(--text-muted);">Loại khách:</span> <strong>${oldData.CustomerType || '—'}</strong></div>
+                        </div>
+                      </div>
+
+                      <!-- Column New -->
+                      <div class="diff-column diff-new">
+                        <div class="diff-header new">DỮ LIỆU ĐỀ XUẤT (MỚI)</div>
+                        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                          <div>
+                            <span style="color: var(--text-muted);">SĐT:</span> 
+                            <strong style="${newData.Phone !== oldData.Phone ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newData.Phone || '—'}
+                            </strong>
+                            ${newData.Phone !== oldData.Phone ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                          </div>
+                          <div>
+                            <span style="color: var(--text-muted);">Người liên hệ:</span> 
+                            <strong style="${newData.ContactPerson !== oldData.ContactPerson ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newData.ContactPerson || '—'}
+                            </strong>
+                            ${newData.ContactPerson !== oldData.ContactPerson ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                          </div>
+                          <div>
+                            <span style="color: var(--text-muted);">Địa chỉ:</span> 
+                            <strong style="${newData.Address !== oldData.Address ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newData.Address || '—'}
+                            </strong>
+                            ${newData.Address !== oldData.Address ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                          </div>
+                          <div>
+                            <span style="color: var(--text-muted);">Loại khách:</span> 
+                            <strong style="${newData.CustomerType !== oldData.CustomerType ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newData.CustomerType || '—'}
+                            </strong>
+                            ${newData.CustomerType !== oldData.CustomerType ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Resolution info if resolved -->
+                  ${!isPending ? `
+                    <div style="font-size: 0.8rem; color: var(--text-muted); background: var(--bg-subtle); padding: 0.5rem 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                      <div>
+                        Xử lý bởi: <strong>${req.ApprovedByName || req.ApprovedBy || 'Manager'}</strong> lúc ${req.ApprovedAt ? new Date(req.ApprovedAt).toLocaleString('vi-VN') : '—'}
+                      </div>
+                      ${req.RejectReason ? `<div style="color: var(--danger); font-weight: 600;">Lý do từ chối: ${req.RejectReason}</div>` : ''}
+                    </div>
+                  ` : ''}
+
+                  <!-- Action Buttons for PENDING -->
+                  ${isPending ? `
+                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem;">
+                      <button class="btn-action-inline" onclick="ManagerApp.promptRejectRequest('${req.RequestID}')" style="background: #fee2e2; color: #b91c1c; border-color: #fecaca; padding: 0.5rem 1.25rem; font-weight: 600;">
+                        ✕ Từ Chối
+                      </button>
+                      <button class="btn-action-large btn-meet-customer" onclick="ManagerApp.handleApproveRequest('${req.RequestID}')" style="padding: 0.5rem 1.5rem; font-weight: 700; background: #10b981;">
+                        ✓ Chấp Thuận Ghi Đè
+                      </button>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `}
+      </div>
+    `;
+  },
+
+  filterApprovals(filter) {
+    this.approvalsFilter = filter;
+    this.renderApprovalsTab();
+  },
+
+  async handleApproveRequest(requestId) {
+    if (!confirm("Bạn có chắc chắn muốn CHẤP THUẬN yêu cầu này? Dữ liệu mới sẽ được ghi đè vào hồ sơ khách hàng.")) {
+      return;
+    }
+
+    UI.showLoading("Đang cập nhật hồ sơ khách hàng...");
+    const res = await ApiService.resolveCustomerUpdateRequest(
+      requestId,
+      "APPROVE",
+      "",
+      this.currentUser ? this.currentUser.UserID : "MGR001",
+      this.currentUser ? this.currentUser.Name : "Manager"
+    );
+
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.showToast("Đã chấp thuận và ghi đè hồ sơ khách hàng thành công!", "success");
+      await this.renderApprovalsTab();
+    } else {
+      UI.showToast((res && res.message) || "Lỗi khi phê duyệt yêu cầu", "danger");
+    }
+  },
+
+  promptRejectRequest(requestId) {
+    const reason = prompt("Vui lòng nhập lý do từ chối yêu cầu cập nhật này:");
+    if (reason === null) return; // User cancelled
+    if (!reason.trim()) {
+      UI.showToast("Bạn cần nhập lý do để từ chối yêu cầu!", "warning");
+      return;
+    }
+
+    this.handleRejectRequest(requestId, reason.trim());
+  },
+
+  async handleRejectRequest(requestId, reason) {
+    UI.showLoading("Đang từ chối yêu cầu...");
+    const res = await ApiService.resolveCustomerUpdateRequest(
+      requestId,
+      "REJECT",
+      reason,
+      this.currentUser ? this.currentUser.UserID : "MGR001",
+      this.currentUser ? this.currentUser.Name : "Manager"
+    );
+
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.showToast("Đã từ chối yêu cầu cập nhật!", "info");
+      await this.renderApprovalsTab();
+    } else {
+      UI.showToast((res && res.message) || "Lỗi khi từ chối yêu cầu", "danger");
+    }
+  },
+
+  // ----------------------------------------------------
+  // TAB 6: QUẢN LÝ DANH MỤC HÀNG HÓA (PRODUCT MANAGEMENT)
+  // ----------------------------------------------------
+  productSearchQuery: "",
+  productCategoryFilter: "ALL",
+
+  async renderProductsTab() {
+    const content = document.getElementById("manager-tab-content");
+    if (!content) return;
+
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh mục hàng hóa...</div>`;
+
+    const res = await ApiService.getProducts();
+    const products = (res && res.success && res.data) ? res.data : [];
+
+    // Lọc theo search và category
+    let filtered = products;
+    if (this.productCategoryFilter !== "ALL") {
+      filtered = filtered.filter(p => p.CategoryID === this.productCategoryFilter);
+    }
+    if (this.productSearchQuery.trim()) {
+      const q = this.productSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter(p => 
+        (p.ProductName && p.ProductName.toLowerCase().includes(q)) ||
+        (p.ProductID && p.ProductID.toLowerCase().includes(q)) ||
+        (p.Packaging && p.Packaging.toLowerCase().includes(q))
+      );
+    }
+
+    // Categories list for filter
+    const categories = [
+      { id: "ALL", name: "Tất cả danh mục" },
+      { id: "DMN_XE_MAY", name: "Dầu Nhờn Xe Máy" },
+      { id: "DMN_OTO", name: "Dầu Động Cơ Ô Tô & Xe Tải" },
+      { id: "DMN_CONG_NGHIEP", name: "Dầu Công Nghiệp & Thủy Lực" },
+      { id: "MO_BO", name: "Mỡ Bôi Trơn Chịu Nhiệt" },
+      { id: "PHU_GIA", name: "Phụ Gia & Nước Làm Mát" }
+    ];
+
+    const activeCount = products.filter(p => p.Status === "ACTIVE").length;
+    const inactiveCount = products.filter(p => p.Status === "INACTIVE").length;
+
+    content.innerHTML = `
+      <div style="padding: 1.25rem;">
+        <!-- Top Banner & Add Button -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 style="font-size: 1.3rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">
+              Quản Lý Danh Mục Sản Phẩm & Hàng Hóa
+            </h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+              Chỉ Quản Lý (Manager) và Admin có quyền thêm, cập nhật giá niêm yết, quy cách hoặc bật/tắt kinh doanh.
+            </p>
+          </div>
+          <button class="btn-action-large btn-meet-customer" onclick="ManagerApp.showAddProductModal()" style="padding: 0.5rem 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+            <span>+</span> THÊM SẢN PHẨM MỚI
+          </button>
+        </div>
+
+        <!-- KPI Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+          <div style="background: var(--bg-card); padding: 1rem; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Tổng Số Mặt Hàng</div>
+            <div style="font-size: 1.6rem; font-weight: 700; color: var(--text-main);">${products.length}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Mã hàng trong hệ thống</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 1rem; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Đang Kinh Doanh</div>
+            <div style="font-size: 1.6rem; font-weight: 700; color: #10b981;">${activeCount}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Khả dụng cho Sales lên đơn</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 1rem; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Tạm Ngừng Kinh Doanh</div>
+            <div style="font-size: 1.6rem; font-weight: 700; color: #ef4444;">${inactiveCount}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Ẩn khỏi danh mục bán hàng</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 1rem; border-radius: 10px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Phân Loại Sản Phẩm</div>
+            <div style="font-size: 1.6rem; font-weight: 700; color: var(--primary);">${categories.length - 1}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Ngành hàng dầu nhờn Kingpetro</div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div style="background: var(--bg-card); padding: 1rem; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 1.25rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+          <div style="flex: 1; min-width: 250px;">
+            <input 
+              type="text" 
+              placeholder="🔍 Tìm theo tên sản phẩm, mã hoặc quy cách..." 
+              value="${this.productSearchQuery}"
+              oninput="ManagerApp.productSearchQuery = this.value; ManagerApp.renderProductsTab();"
+              style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-main); color: var(--text-main);"
+            />
+          </div>
+          <div style="min-width: 220px;">
+            <select 
+              onchange="ManagerApp.productCategoryFilter = this.value; ManagerApp.renderProductsTab();"
+              style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-main); color: var(--text-main);"
+            >
+              ${categories.map(c => `
+                <option value="${c.id}" ${this.productCategoryFilter === c.id ? 'selected' : ''}>${c.name}</option>
+              `).join("")}
+            </select>
+          </div>
+        </div>
+
+        <!-- Products Table -->
+        <div style="background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border); overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;">
+            <thead>
+              <tr style="background: var(--bg-subtle); border-bottom: 2px solid var(--border); color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 0.75rem 1rem;">Mã SP</th>
+                <th style="padding: 0.75rem 1rem;">Tên Sản Phẩm</th>
+                <th style="padding: 0.75rem 1rem;">Phân Loại</th>
+                <th style="padding: 0.75rem 1rem;">ĐVT</th>
+                <th style="padding: 0.75rem 1rem;">Quy Cách</th>
+                <th style="padding: 0.75rem 1rem; text-align: right;">Đơn Giá (VNĐ)</th>
+                <th style="padding: 0.75rem 1rem; text-align: center;">Trạng Thái</th>
+                <th style="padding: 0.75rem 1rem; text-align: center;">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.length === 0 ? `
+                <tr>
+                  <td colspan="8" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+                    Không tìm thấy sản phẩm nào phù hợp với bộ lọc
+                  </td>
+                </tr>
+              ` : filtered.map(p => {
+                const isActive = p.Status === "ACTIVE";
+                return `
+                  <tr style="border-bottom: 1px solid var(--border); transition: background 0.15s;">
+                    <td style="padding: 0.75rem 1rem; font-weight: 700; color: var(--primary);">${p.ProductID}</td>
+                    <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--text-main);">
+                      <div>${p.ProductName}</div>
+                    </td>
+                    <td style="padding: 0.75rem 1rem; color: var(--text-muted); font-size: 0.82rem;">
+                      ${p.CategoryName || p.CategoryID}
+                    </td>
+                    <td style="padding: 0.75rem 1rem;">
+                      <span style="background: var(--bg-subtle); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; font-size: 0.8rem;">${p.Unit}</span>
+                    </td>
+                    <td style="padding: 0.75rem 1rem; color: var(--text-muted);">${p.Packaging || '—'}</td>
+                    <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 700; color: var(--text-main);">
+                      ${(p.BasePrice || 0).toLocaleString('vi-VN')} đ
+                    </td>
+                    <td style="padding: 0.75rem 1rem; text-align: center;">
+                      ${isActive ? `
+                        <span style="background: #d1fae5; color: #047857; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;">Đang Bán</span>
+                      ` : `
+                        <span style="background: #fee2e2; color: #b91c1c; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;">Tạm Ngừng</span>
+                      `}
+                    </td>
+                    <td style="padding: 0.75rem 1rem; text-align: center;">
+                      <div style="display: flex; justify-content: center; gap: 0.4rem;">
+                        <button 
+                          class="btn-action-inline" 
+                          onclick="ManagerApp.showEditProductModal('${p.ProductID}')" 
+                          title="Sửa thông tin hàng hóa"
+                          style="padding: 0.35rem 0.6rem; font-size: 0.78rem;"
+                        >
+                          ✏ Sửa
+                        </button>
+                        <button 
+                          class="btn-action-inline" 
+                          onclick="ManagerApp.toggleProductStatus('${p.ProductID}')" 
+                          title="${isActive ? 'Ngừng kinh doanh' : 'Kích hoạt bán lại'}"
+                          style="padding: 0.35rem 0.6rem; font-size: 0.78rem; color: ${isActive ? '#b91c1c' : '#047857'}; border-color: ${isActive ? '#fecaca' : '#a7f3d0'}; background: ${isActive ? '#fee2e2' : '#d1fae5'};"
+                        >
+                          ${isActive ? '⛔ Dừng' : '✓ Bán'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  },
+
+  async showAddProductModal() {
+    this.showProductFormModal(null);
+  },
+
+  async showEditProductModal(productId) {
+    const res = await ApiService.getProducts();
+    const products = (res && res.success && res.data) ? res.data : [];
+    const product = products.find(p => p.ProductID === productId);
+    if (!product) {
+      UI.showToast("Không tìm thấy sản phẩm!", "danger");
+      return;
+    }
+    this.showProductFormModal(product);
+  },
+
+  showProductFormModal(product) {
+    const isEdit = !!product;
+    const p = product || {
+      ProductID: "PROD_" + Math.floor(100 + Math.random() * 900),
+      ProductName: "",
+      CategoryID: "DMN_XE_MAY",
+      CategoryName: "Dầu Nhờn Xe Máy",
+      Unit: "Thùng",
+      Packaging: "Thùng 24 chai 0.8L",
+      BasePrice: 1500000,
+      Status: "ACTIVE"
+    };
+
+    const categories = [
+      { id: "DMN_XE_MAY", name: "Dầu Nhờn Xe Máy" },
+      { id: "DMN_OTO", name: "Dầu Động Cơ Ô Tô & Xe Tải" },
+      { id: "DMN_CONG_NGHIEP", name: "Dầu Công Nghiệp & Thủy Lực" },
+      { id: "MO_BO", name: "Mỡ Bôi Trơn Chịu Nhiệt" },
+      { id: "PHU_GIA", name: "Phụ Gia & Nước Làm Mát" }
+    ];
+
+    const units = ["Thùng", "Xô", "Chai", "Bình", "Phuy", "Lon", "Gói"];
+
+    const content = `
+      <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+        <span>${isEdit ? '✏ Cập Nhật Thông Tin Hàng Hóa' : '➕ Thêm Sản Phẩm Mới'}</span>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        ${isEdit ? `Cập nhật thông số kỹ thuật, giá niêm yết hoặc trạng thái của mặt hàng [${p.ProductID}]` : 'Nhập thông tin sản phẩm mới vào danh mục hàng hóa của Kingpetro'}
+      </p>
+
+      <form id="product-crud-form" onsubmit="event.preventDefault(); ManagerApp.saveProductForm('${p.ProductID}', ${isEdit});" style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="display: flex; gap: 0.75rem;">
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Mã Sản Phẩm (*)</label>
+            <input type="text" id="p-form-id" value="${p.ProductID}" ${isEdit ? 'readonly' : ''} style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-weight: 700; background: ${isEdit ? 'var(--bg-subtle)' : 'var(--bg-main)'}; color: var(--text-main);" required />
+          </div>
+          <div style="flex: 2;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Phân Loại / Ngành Hàng</label>
+            <select id="p-form-category" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);">
+              ${categories.map(c => `
+                <option value="${c.id}" ${p.CategoryID === c.id ? 'selected' : ''}>${c.name}</option>
+              `).join("")}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Tên Sản Phẩm (*)</label>
+          <input type="text" id="p-form-name" value="${p.ProductName}" placeholder="VD: Kingpetro Moto 4T 10W40 SL" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);" required />
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Đơn Vị Tính (ĐVT)</label>
+            <select id="p-form-unit" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);">
+              ${units.map(u => `
+                <option value="${u}" ${p.Unit === u ? 'selected' : ''}>${u}</option>
+              `).join("")}
+            </select>
+          </div>
+          <div style="flex: 2;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Quy Cách Đóng Gói</label>
+            <input type="text" id="p-form-packaging" value="${p.Packaging || ''}" placeholder="VD: Thùng 24 chai x 0.8L" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);" />
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Đơn Giá Niêm Yết (VNĐ) (*)</label>
+            <input type="number" id="p-form-price" value="${p.BasePrice || 0}" min="0" step="1000" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-weight: 700; background: var(--bg-main); color: var(--text-main);" required />
+          </div>
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Trạng Thái Kinh Doanh</label>
+            <select id="p-form-status" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);">
+              <option value="ACTIVE" ${p.Status === 'ACTIVE' ? 'selected' : ''}>Đang Kinh Doanh (ACTIVE)</option>
+              <option value="INACTIVE" ${p.Status === 'INACTIVE' ? 'selected' : ''}>Tạm Ngừng (INACTIVE)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem;">
+          <button type="button" class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.5rem 1rem;">Hủy</button>
+          <button type="submit" class="btn-action-large btn-meet-customer" style="padding: 0.5rem 1.5rem;">
+            ${isEdit ? 'LƯU THAY ĐỔI' : 'TẠO MỚI SẢN PHẨM'}
+          </button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(content);
+  },
+
+  async saveProductForm(originalId, isEdit) {
+    const id = document.getElementById("p-form-id").value.trim();
+    const name = document.getElementById("p-form-name").value.trim();
+    const catSelect = document.getElementById("p-form-category");
+    const categoryId = catSelect.value;
+    const categoryName = catSelect.options[catSelect.selectedIndex].text;
+    const unit = document.getElementById("p-form-unit").value;
+    const packaging = document.getElementById("p-form-packaging").value.trim();
+    const price = parseFloat(document.getElementById("p-form-price").value) || 0;
+    const status = document.getElementById("p-form-status").value;
+
+    if (!id || !name) {
+      UI.showToast("Vui lòng nhập đầy đủ mã và tên sản phẩm!", "warning");
+      return;
+    }
+
+    const productData = {
+      ProductID: id,
+      ProductName: name,
+      CategoryID: categoryId,
+      CategoryName: categoryName,
+      Unit: unit,
+      Packaging: packaging,
+      BasePrice: price,
+      Status: status
+    };
+
+    UI.showLoading("Đang lưu thông tin sản phẩm...");
+    const res = await ApiService.saveProduct(productData);
+    UI.hideLoading();
+
+    if (res && res.success) {
+      UI.closeModal();
+      UI.showToast(isEdit ? "Cập nhật sản phẩm thành công!" : "Đã thêm sản phẩm mới!", "success");
+      await this.renderProductsTab();
+    } else {
+      UI.showToast((res && res.message) || "Lỗi lưu sản phẩm", "danger");
+    }
+  },
+
+  async toggleProductStatus(productId) {
+    UI.showLoading("Đang đổi trạng thái sản phẩm...");
+    const res = await ApiService.toggleProductStatus(productId);
+    UI.hideLoading();
+
+    if (res && res.success) {
+      UI.showToast("Đã đổi trạng thái sản phẩm thành công!", "success");
+      await this.renderProductsTab();
+    } else {
+      UI.showToast((res && res.message) || "Lỗi đổi trạng thái", "danger");
+    }
   }
 };
+

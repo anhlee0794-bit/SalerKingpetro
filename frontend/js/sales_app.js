@@ -1,4 +1,4 @@
-/**
+1/**
  * SALES MOBILE APP CONTROLLER
  * Powers the fast, simple, touch-optimized mobile experience for field reps.
  */
@@ -42,7 +42,7 @@ const SalesApp = {
     const res = await ApiService.getActiveSession(this.currentUser.UserID);
     if (res && res.success && res.session) {
       this.activeSession = res.session;
-      
+
       // If working, resume GPS tracking
       if (!GeoService.isTracking) {
         this.startGpsTracking();
@@ -274,10 +274,10 @@ const SalesApp = {
               <h2>${this.currentUser.Name}</h2>
               <div class="date-text">Hôm nay: ${todayStr}</div>
             </div>
-            ${this.activeVisit 
-              ? `<span class="role-pill" style="background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;">ĐANG THĂM</span>`
-              : `<span class="role-pill role-sales">ONLINE</span>`
-            }
+            ${this.activeVisit
+          ? `<span class="role-pill" style="background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;">ĐANG THĂM</span>`
+          : `<span class="role-pill role-sales">ONLINE</span>`
+        }
           </div>
 
           <!-- ACTIVE VISIT SPOTLIGHT (Nếu đang tại điểm bán) -->
@@ -478,7 +478,7 @@ const SalesApp = {
   startDwellTracking() {
     if (!this.activeSession || !this.customers.length) return;
 
-    const radius    = Number(this.settings.DWELL_RADIUS            || 30);
+    const radius = Number(this.settings.DWELL_RADIUS || 30);
     const threshold = Number(this.settings.DWELL_THRESHOLD_MINUTES || 5);
 
     GeoService.startDwellTracking(
@@ -645,10 +645,10 @@ const SalesApp = {
     // or simply see their contact info.
     const customerListHtml = this.customers.map(c => {
       const careStatusColors = {
-        OVERDUE:      { bg: '#fef2f2', border: '#ef4444', pill: 'overdue' },
-        DUE_SOON:     { bg: '#fffbeb', border: '#f59e0b', pill: 'duesoon' },
-        NEVER_VISITED:{ bg: '#f5f3ff', border: '#8b5cf6', pill: 'never' },
-        ON_TRACK:     { bg: 'var(--bg-card)', border: 'var(--border)', pill: 'ontrack' }
+        OVERDUE: { bg: '#fef2f2', border: '#ef4444', pill: 'overdue' },
+        DUE_SOON: { bg: '#fffbeb', border: '#f59e0b', pill: 'duesoon' },
+        NEVER_VISITED: { bg: '#f5f3ff', border: '#8b5cf6', pill: 'never' },
+        ON_TRACK: { bg: 'var(--bg-card)', border: 'var(--border)', pill: 'ontrack' }
       };
       const theme = careStatusColors[c.CareStatus] || careStatusColors.ON_TRACK;
 
@@ -724,7 +724,7 @@ const SalesApp = {
           const badge = document.getElementById("prospect-gps-badge");
           if (badge) badge.innerText = `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
         },
-        () => {},
+        () => { },
         { timeout: 2000, maximumAge: 60000 }
       );
     }
@@ -1197,6 +1197,128 @@ const SalesApp = {
 
   showCheckoutModal() {
     this.showCareCheckoutModal();
+  },
+
+  // ----------------------------------------------------
+  // REQUEST CUSTOMER UPDATE (APPROVAL FLOW)
+  // ----------------------------------------------------
+  showRequestCustomerUpdateModal(customerId) {
+    const cust = (this.customers || []).find(c => c.CustomerID === customerId);
+    if (!cust) return UI.showToast("Không tìm thấy khách hàng", "danger");
+
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+          <h3 style="font-weight: 800; font-size: 1.15rem; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
+            ${Icons.render('file-edit', { size: 18, color: '#2563eb' })} Đề Xuất Cập Nhật Khách Hàng
+          </h3>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+            Điểm bán: <strong>${cust.CustomerName}</strong> (${cust.CustomerID})
+          </div>
+        </div>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.78rem; color: #1e40af; display: flex; align-items: flex-start; gap: 0.4rem;">
+        ${Icons.render('info', { size: 16, color: '#2563eb' })}
+        <div><strong>Quy trình phê duyệt (Approval Flow):</strong> Thông tin do bạn đề xuất sẽ được chuyển lên Quản lý (Manager) xem xét và phê duyệt trước khi cập nhật chính thức vào hệ thống.</div>
+      </div>
+
+      <form onsubmit="event.preventDefault(); SalesApp.submitCustomerUpdateRequest('${cust.CustomerID}');">
+        <div class="form-group" style="margin-bottom: 0.65rem;">
+          <label class="form-label" style="font-size: 0.78rem;">Tên điểm bán / đại lý</label>
+          <input type="text" class="form-control" value="${cust.CustomerName || ''}" disabled style="background: #f1f5f9; color: #64748b;" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 0.65rem;">
+          <div class="form-group">
+            <label class="form-label" style="font-size: 0.78rem;">Người liên hệ (*)</label>
+            <input type="text" id="req-cust-contact" class="form-control" value="${cust.ContactName || ''}" required placeholder="Anh Minh / Chị Lan" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-size: 0.78rem;">Số điện thoại (*)</label>
+            <input type="tel" id="req-cust-phone" class="form-control" value="${cust.Phone || ''}" required placeholder="0912345678" />
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0.65rem;">
+          <label class="form-label" style="font-size: 0.78rem;">Địa chỉ cửa hàng (*)</label>
+          <input type="text" id="req-cust-address" class="form-control" value="${cust.Address || ''}" required placeholder="Số nhà, đường, quận/huyện..." />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0.65rem;">
+          <label class="form-label" style="font-size: 0.78rem;">Phân loại khách hàng</label>
+          <select id="req-cust-type" class="form-control">
+            <option value="VIP" ${cust.CustomerType === 'VIP' ? 'selected' : ''}>Khách Lớn / VIP (Chu kỳ 3 ngày)</option>
+            <option value="NORMAL" ${cust.CustomerType === 'NORMAL' || !cust.CustomerType ? 'selected' : ''}>Khách Thường (Chu kỳ 7 ngày)</option>
+            <option value="SMALL" ${cust.CustomerType === 'SMALL' ? 'selected' : ''}>Khách Nhỏ (Chu kỳ 14 ngày)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-size: 0.78rem;">Lý do / Ghi chú đề xuất thay đổi (*)</label>
+          <textarea id="req-cust-reason" class="form-control" rows="2" placeholder="Ví dụ: Đại lý mới đổi số hotline, mở rộng thêm gian hàng..." required></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.5rem 1rem;">Hủy</button>
+          <button type="submit" class="btn-action-large btn-meet-customer" style="padding: 0.5rem 1.25rem; font-size: 0.9rem;">
+            ${Icons.render('send', { size: 14 })} GỬI YÊU CẦU DUYỆT
+          </button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(content);
+  },
+
+  async submitCustomerUpdateRequest(customerId) {
+    const cust = (this.customers || []).find(c => c.CustomerID === customerId);
+    if (!cust) return;
+
+    const contact = (document.getElementById("req-cust-contact")?.value || "").trim();
+    const phone = (document.getElementById("req-cust-phone")?.value || "").trim();
+    const address = (document.getElementById("req-cust-address")?.value || "").trim();
+    const customerType = document.getElementById("req-cust-type")?.value || "NORMAL";
+    const reason = (document.getElementById("req-cust-reason")?.value || "").trim();
+
+    if (!contact || !phone || !address || !reason) {
+      return UI.showToast("Vui lòng điền đầy đủ các thông tin và lý do thay đổi!", "danger");
+    }
+
+    const oldData = {
+      ContactName: cust.ContactName || "",
+      Phone: cust.Phone || "",
+      Address: cust.Address || "",
+      CustomerType: cust.CustomerType || "NORMAL",
+      Note: cust.Note || ""
+    };
+
+    const newData = {
+      ContactName: contact,
+      Phone: phone,
+      Address: address,
+      CustomerType: customerType,
+      Note: cust.Note || ""
+    };
+
+    UI.showLoading("Đang gửi yêu cầu phê duyệt...");
+    const res = await ApiService.requestCustomerUpdate(
+      this.currentUser.UserID,
+      cust.CustomerID,
+      cust.CustomerName,
+      oldData,
+      newData,
+      reason
+    );
+    UI.hideLoading();
+
+    if (res && res.success) {
+      UI.closeModal();
+      UI.showToast("Đã gửi yêu cầu cập nhật thông tin khách hàng lên Quản lý phê duyệt!", "success");
+    } else {
+      UI.showToast((res && res.message) || "Lỗi gửi yêu cầu", "danger");
+    }
   }
 };
 

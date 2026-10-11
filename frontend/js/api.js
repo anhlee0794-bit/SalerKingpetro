@@ -126,6 +126,32 @@ const ApiService = {
 
   async getSettings() {
     return this.request("getSettings");
+  },
+
+  // Customer Info Approval Flow
+  async requestCustomerUpdate(salesId, customerId, customerName, oldData, newData, reason) {
+    return this.request("requestCustomerUpdate", { salesId, customerId, customerName, oldData, newData, reason });
+  },
+
+  async getCustomerUpdateRequests(status) {
+    return this.request("getCustomerUpdateRequests", { status });
+  },
+
+  async resolveCustomerUpdateRequest(requestId, isApproved, rejectReason, approverName) {
+    return this.request("resolveCustomerUpdateRequest", { requestId, isApproved, rejectReason, approverName });
+  },
+
+  // Product Catalog Management
+  async getProducts(category, status) {
+    return this.request("getProducts", { category, status });
+  },
+
+  async saveProduct(productData, role) {
+    return this.request("saveProduct", { productData, role });
+  },
+
+  async toggleProductStatus(productId, role) {
+    return this.request("toggleProductStatus", { productId, role });
   }
 };
 
@@ -143,12 +169,93 @@ const MockDatabase = {
       this.saveDB(db);
     } else {
       db = JSON.parse(db);
+      let changed = false;
+      if (!db.CUSTOMER_UPDATE_REQUESTS) {
+        db.CUSTOMER_UPDATE_REQUESTS = this.initDefaultCustomerRequests();
+        changed = true;
+      }
+      if (!db.PRODUCTS) {
+        db.PRODUCTS = this.initDefaultProducts();
+        changed = true;
+      }
+      if (!db.PRODUCT_CATEGORIES) {
+        db.PRODUCT_CATEGORIES = ["Sơn Phủ", "Phụ Gia", "Sơn Lót", "Chống Thấm", "Dung Môi", "Dầu Nhờn & Mỡ Bôi Trơn", "Hóa Chất"];
+        changed = true;
+      }
+      if (changed) this.saveDB(db);
     }
     return db;
   },
 
   saveDB(db) {
     localStorage.setItem(this.dbKey, JSON.stringify(db));
+  },
+
+  initDefaultCustomerRequests() {
+    return [
+      {
+        RequestID: "REQ-001",
+        CustomerID: "CUST-001",
+        CustomerName: "Đại lý Tạp Hóa Minh Phát",
+        SalesID: "USR-002",
+        SalesName: "Nguyễn Văn A",
+        OldData: {
+          ContactName: "Anh Minh",
+          Phone: "0912345601",
+          Address: "128 Nguyễn Trãi, Q.1, TP.HCM",
+          Note: "Khách hàng lớn, cần theo dõi tồn kho sát sao"
+        },
+        NewData: {
+          ContactName: "Anh Minh (Chủ đại lý)",
+          Phone: "0912345999",
+          Address: "128A Nguyễn Trãi, Phường Bến Thành, Q.1, TP.HCM",
+          Note: "Đại lý mới mở rộng thêm gian hàng bên cạnh, liên hệ ưu tiên số mới"
+        },
+        Reason: "Đại lý đổi số hotline và mở rộng thêm diện tích kinh doanh",
+        Status: "PENDING",
+        CreatedAt: new Date(Date.now() - 3600000 * 4).toISOString(),
+        ResolvedAt: null,
+        ApproverName: null,
+        RejectReason: null
+      },
+      {
+        RequestID: "REQ-002",
+        CustomerID: "CUST-003",
+        CustomerName: "Nhà Phân Phối Bách Hóa Á Châu",
+        SalesID: "USR-003",
+        SalesName: "Trần Thị B",
+        OldData: {
+          ContactName: "Anh Hùng",
+          Phone: "0912345603",
+          Address: "320 Cách Mạng Tháng 8, Q.3, TP.HCM",
+          Note: "Đang đàm phán hợp đồng"
+        },
+        NewData: {
+          ContactName: "Anh Hùng (GĐ Kinh Doanh)",
+          Phone: "0912345603",
+          Address: "320 Cách Mạng Tháng 8, Phường 10, Q.3, TP.HCM",
+          Note: "Đã ký hợp đồng phân phối chính thức, hạn thanh toán 15 ngày"
+        },
+        Reason: "Cập nhật chức danh liên hệ và điều khoản thanh toán",
+        Status: "APPROVED",
+        CreatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        ResolvedAt: new Date(Date.now() - 86400000 * 1).toISOString(),
+        ApproverName: "Quản Lý Nguyễn",
+        RejectReason: null
+      }
+    ];
+  },
+
+  initDefaultProducts() {
+    return [
+      { id: "PRD-001", name: "Sơn Ngoại Thất Cao Cấp SuperShield", category: "Sơn Phủ", defaultUnit: "Thùng", ratio: 24, baseUnit: "Chai", price: 1250000, status: "ACTIVE", spec: "Thùng 20L (quy cách 24 lon)" },
+      { id: "PRD-002", name: "Dung Dịch Phủ Bóng Nano Pro", category: "Phụ Gia", defaultUnit: "Chai", ratio: 1, baseUnit: "Chai", price: 180000, status: "ACTIVE", spec: "Chai 1L" },
+      { id: "PRD-003", name: "Sơn Lót Kháng Kiềm Chống Kiềm Hóa", category: "Sơn Lót", defaultUnit: "Xô", ratio: 18, baseUnit: "Chai", price: 890000, status: "ACTIVE", spec: "Xô tiêu chuẩn 18L" },
+      { id: "PRD-004", name: "Keo Chống Thấm Polyurethane Công Nghiệp", category: "Chống Thấm", defaultUnit: "Phuy", ratio: 200, baseUnit: "Chai", price: 9500000, status: "ACTIVE", spec: "Phuy thép 200L" },
+      { id: "PRD-005", name: "Dung Môi Tẩy Rửa & Pha Sơn Eco", category: "Dung Môi", defaultUnit: "Bình", ratio: 4, baseUnit: "Chai", price: 320000, status: "ACTIVE", spec: "Can 4L" },
+      { id: "PRD-006", name: "Dầu Nhờn Động Cơ KingPetro Heavy-Duty", category: "Dầu Nhờn & Mỡ Bôi Trơn", defaultUnit: "Thùng", ratio: 24, baseUnit: "Chai", price: 1450000, status: "ACTIVE", spec: "Thùng 24 lon x 1L" },
+      { id: "PRD-007", name: "Mỡ Bôi Trơn Công Nghiệp Chịu Nhiệt EP-3", category: "Dầu Nhờn & Mỡ Bôi Trơn", defaultUnit: "Xô", ratio: 18, baseUnit: "Chai", price: 1680000, status: "INACTIVE", spec: "Xô 18kg" }
+    ];
   },
 
   initDefaultDB() {
@@ -318,6 +425,9 @@ const MockDatabase = {
         DWELL_RADIUS: 30,              // meters — geofence radius for passive check-in detection
         DWELL_THRESHOLD_MINUTES: 5     // minutes STATIONARY inside geofence to trigger auto-checkin
       },
+      CUSTOMER_UPDATE_REQUESTS: this.initDefaultCustomerRequests(),
+      PRODUCTS: this.initDefaultProducts(),
+      PRODUCT_CATEGORIES: ["Sơn Phủ", "Phụ Gia", "Sơn Lót", "Chống Thấm", "Dung Môi", "Dầu Nhờn & Mỡ Bôi Trơn", "Hóa Chất"],
       LOGS: []
     };
   },
@@ -332,6 +442,116 @@ const MockDatabase = {
     const today = new Date().toISOString().split("T")[0];
 
     switch (action) {
+      case "requestCustomerUpdate": {
+        const reqId = "REQ-" + Date.now();
+        const newReq = {
+          RequestID: reqId,
+          CustomerID: params.customerId,
+          CustomerName: params.customerName || "Khách Hàng",
+          SalesID: params.salesId,
+          SalesName: params.salesName || ((db.USERS || []).find(u => u.UserID === params.salesId)?.Name || params.salesId),
+          OldData: params.oldData || {},
+          NewData: params.newData || {},
+          Reason: params.reason || "",
+          Status: "PENDING",
+          CreatedAt: new Date().toISOString(),
+          ResolvedAt: null,
+          ApproverName: null,
+          RejectReason: null
+        };
+        db.CUSTOMER_UPDATE_REQUESTS.unshift(newReq);
+        this.saveDB(db);
+        return { success: true, request: newReq, message: "Đã gửi yêu cầu cập nhật thông tin thành công! Đang chờ Quản lý phê duyệt." };
+      }
+
+      case "getCustomerUpdateRequests": {
+        let list = db.CUSTOMER_UPDATE_REQUESTS || [];
+        if (params.status && params.status !== "ALL") {
+          list = list.filter(r => r.Status === params.status);
+        }
+        return { success: true, requests: list };
+      }
+
+      case "resolveCustomerUpdateRequest": {
+        const req = (db.CUSTOMER_UPDATE_REQUESTS || []).find(r => r.RequestID === params.requestId);
+        if (!req) return { success: false, message: "Không tìm thấy yêu cầu cập nhật" };
+
+        req.ResolvedAt = new Date().toISOString();
+        req.ApproverName = params.approverName || "Quản Lý";
+
+        if (params.isApproved) {
+          req.Status = "APPROVED";
+          const cust = (db.CUSTOMERS || []).find(c => c.CustomerID === req.CustomerID);
+          if (cust && req.NewData) {
+            if (req.NewData.ContactName) cust.ContactName = req.NewData.ContactName;
+            if (req.NewData.Phone) cust.Phone = req.NewData.Phone;
+            if (req.NewData.Address) cust.Address = req.NewData.Address;
+            if (req.NewData.Note !== undefined) cust.Note = req.NewData.Note;
+            if (req.NewData.CustomerType) {
+              cust.CustomerType = req.NewData.CustomerType;
+              cust.CareCycleDays = req.NewData.CustomerType === "VIP" ? 3 : (req.NewData.CustomerType === "SMALL" ? 14 : 7);
+            }
+          }
+        } else {
+          req.Status = "REJECTED";
+          req.RejectReason = params.rejectReason || "Không đủ thông tin xác thực";
+        }
+
+        this.saveDB(db);
+        const actionLabel = params.isApproved ? "phê duyệt" : "từ chối";
+        return { success: true, request: req, message: `Đã ${actionLabel} yêu cầu thành công!` };
+      }
+
+      case "getProducts": {
+        let prods = db.PRODUCTS || [];
+        if (params.category && params.category !== "ALL") {
+          prods = prods.filter(p => p.category === params.category);
+        }
+        if (params.status && params.status !== "ALL") {
+          prods = prods.filter(p => p.status === params.status);
+        }
+        return { success: true, products: prods, categories: db.PRODUCT_CATEGORIES || [] };
+      }
+
+      case "saveProduct": {
+        if (params.role !== "ADMIN" && params.role !== "MANAGER") {
+          return { success: false, message: "Chỉ Quản lý hoặc Admin mới có quyền chỉnh sửa danh mục hàng hóa!" };
+        }
+        const pData = params.productData || {};
+        let prods = db.PRODUCTS || [];
+        const existingIdx = prods.findIndex(p => p.id === pData.id);
+
+        if (existingIdx >= 0) {
+          prods[existingIdx] = { ...prods[existingIdx], ...pData };
+        } else {
+          const newId = pData.id || ("PRD-" + String(prods.length + 1).padStart(3, "0"));
+          prods.push({
+            id: newId,
+            name: pData.name,
+            category: pData.category || "Sơn Phủ",
+            defaultUnit: pData.defaultUnit || "Thùng",
+            ratio: Number(pData.ratio) || 24,
+            baseUnit: pData.baseUnit || "Chai",
+            price: Number(pData.price) || 0,
+            status: pData.status || "ACTIVE",
+            spec: pData.spec || ""
+          });
+        }
+        db.PRODUCTS = prods;
+        this.saveDB(db);
+        return { success: true, message: "Đã lưu thông tin hàng hóa thành công!" };
+      }
+
+      case "toggleProductStatus": {
+        if (params.role !== "ADMIN" && params.role !== "MANAGER") {
+          return { success: false, message: "Chỉ Quản lý hoặc Admin mới có quyền đổi trạng thái kinh doanh!" };
+        }
+        const prod = (db.PRODUCTS || []).find(p => p.id === params.productId);
+        if (!prod) return { success: false, message: "Không tìm thấy sản phẩm" };
+        prod.status = prod.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+        this.saveDB(db);
+        return { success: true, product: prod, message: `Đã chuyển trạng thái sang ${prod.status === 'ACTIVE' ? 'Đang kinh doanh' : 'Ngừng kinh doanh'}!` };
+      }
       case "getSettings":
         return { success: true, settings: db.SETTINGS };
 

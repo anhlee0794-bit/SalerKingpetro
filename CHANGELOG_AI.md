@@ -1,5 +1,36 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-10-11] - Authentication Wall, Approval Flow Khách Hàng & Quản Lý Danh Mục Hàng Hóa Cho Manager
+- **Mục đích / Bối cảnh**: Nâng cấp hệ thống "SALES FIELD" theo yêu cầu nghiệp vụ chuyên sâu:
+  1. Bắt buộc đăng nhập khi truy cập (Authentication Wall), chặn toàn bộ truy cập trái phép.
+  2. Quy trình phê duyệt thay đổi thông tin khách hàng (Approval Flow): Sales chỉ gửi đề xuất vào hàng chờ; Manager/Admin kiểm tra so sánh Cũ vs Mới trước khi quyết định Chấp thuận (ghi đè) hoặc Từ chối.
+  3. Quản lý danh mục hàng hóa (Product Management): Manager/Admin toàn quyền thêm/sửa/đổi trạng thái kinh doanh dầu nhờn Kingpetro; Sales chỉ được xem catalog để bán hàng.
+- **Các file tạo mới / thay đổi (Affected Files)**:
+  - `frontend/js/permissions.js`: Mở rộng ma trận quyền hạn với `MANAGE_PRODUCTS`, `VIEW_PRODUCTS`, `REQUEST_CUSTOMER_UPDATE`, `APPROVE_CUSTOMER_UPDATE`, và cấp quyền truy cập các tab `approvals`, `products`.
+  - `frontend/css/style.css`: Thêm kiểu dáng hiện đại cho Authentication Wall (`.auth-wall-screen`, `.auth-card`, `.auth-brand-badge`, `.demo-account-btn`), và bộ so sánh diff (`.diff-container`, `.diff-column`, `.diff-old`, `.diff-new`).
+  - `frontend/index.html`: Thêm container toàn màn hình `#auth-wall-container` và nút Đăng Xuất (Logout) trực quan trên Header.
+  - `frontend/js/api.js`:
+    - Thêm các API wrappers: `requestCustomerUpdate`, `getCustomerUpdateRequests`, `resolveCustomerUpdateRequest`, `getProducts`, `saveProduct`, `toggleProductStatus`.
+    - Mở rộng `MockDatabase`: Thêm bảng `CUSTOMER_UPDATE_REQUESTS`, `PRODUCTS`, `PRODUCT_CATEGORIES`, cơ chế tự động migration dữ liệu cũ và các handlers tương ứng.
+  - `frontend/js/products.js`: Chuyển đổi hàm `getCatalog()` sang lấy dữ liệu động từ database, hàm `renderProductOptions()` chỉ hiển thị các mặt hàng đang `ACTIVE`.
+  - `frontend/js/sales_app.js`: Thêm nút "Đề xuất sửa" trên thẻ khách hàng, modal `showRequestCustomerUpdateModal` cho phép nhập SĐT, người liên hệ, địa chỉ, loại khách, lý do; gửi vào bảng chờ duyệt.
+  - `frontend/js/manager_app.js`:
+    - Tab "Phê Duyệt Thay Đổi" (`renderApprovalsTab`): Hiển thị danh sách yêu cầu với bộ lọc trạng thái, Diff Viewer so sánh 2 cột Cũ vs Mới, 2 nút [Chấp Thuận] (`handleApproveRequest`) và [Từ Chối] (`promptRejectRequest` / `handleRejectRequest`).
+    - Tab "Quản Lý Hàng Hóa" (`renderProductsTab`): Các thẻ KPI thống kê mặt hàng, ô tìm kiếm, lọc theo ngành hàng, bảng sản phẩm với badge trạng thái; Modal thêm/sửa sản phẩm (`showAddProductModal`, `showEditProductModal`, `saveProductForm`) và nút bật/tắt kinh doanh (`toggleProductStatus`).
+  - `frontend/js/app.js`:
+    - `init()`: Kiểm tra session `localStorage`. Nếu chưa đăng nhập, kích hoạt `renderAuthWall()` và ẩn hoàn toàn header, switcher, workspace.
+    - `renderAuthWall()`: Giao diện màn hình đăng nhập với Form Email/Password và 3 nhóm nút chọn nhanh Demo (ADMIN, MANAGER, SALES).
+    - `showAuthenticatedApp()`: Hiển thị lại toàn bộ ứng dụng sau khi đăng nhập thành công.
+    - `logout()`: Xóa token `localStorage`, reset user và quay lại màn hình Auth Wall ngay lập tức.
+  - `tests/test_logic.py`: Bổ sung 4 unit tests kiểm thử Approval Flow (chấp thuận ghi đè DB, từ chối giữ nguyên DB, chặn Sales tự duyệt) và Product Management (Manager thêm/sửa/toggle status, chặn Sales sửa danh mục). Chạy 22/22 unit tests thành công (PASS).
+  - `AI_CONTEXT.md` & `CURRENT_TASK.md`: Cập nhật schema dữ liệu mới và đánh dấu hoàn thành toàn bộ checklist.
+- **Chi tiết kỹ thuật**:
+  - `CustomerApprovalService` (Simulator & Frontend): Request ID sinh theo timestamp `REQ-YYYYMMDDHHMMSS`. Khi Manager bấm Chấp thuận, API `resolveCustomerUpdateRequest` tự động lấy các trường trong `NewData` ghi đè trực tiếp vào bản ghi khách hàng tương ứng trong `CUSTOMERS`.
+  - Chống crash LocalStorage: Hàm `MockDatabase.getDB()` tự động inject dữ liệu mặc định của `CUSTOMER_UPDATE_REQUESTS` và `PRODUCTS` nếu người dùng đang dùng phiên lưu cũ trong trình duyệt.
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py`: 22/22 tests PASS (100%).
+  - Kiểm tra Auth Wall: Ẩn hoàn toàn dữ liệu ứng dụng khi chưa có session đăng nhập, chuyển đổi mượt mà giữa các vai trò ADMIN, MANAGER, SALES và đăng xuất an toàn.
+
 ## [2026-10-11] - Phân Quyền Tài Khoản Theo Vai Trò (RBAC), Quản Lý Phiên Đăng Nhập & Phân Bổ Tuyến
 - **Mục đích / Bối cảnh**: Triển khai hệ thống phân quyền chặt chẽ Role-Based Access Control (RBAC) cho 3 vai trò: ADMIN (Toàn quyền quản trị & nhân sự), MANAGER (Giám sát đội ngũ, bản đồ, timeline, báo cáo), SALES (Tác nghiệp đi tuyến cá nhân, chỉ xem khách hàng và timeline của mình).
 - **Các file tạo mới / thay đổi (Affected Files)**:

@@ -19,6 +19,9 @@
 </head>
 <body>
 
+  <!-- Full-Screen Authentication Wall (Login Screen) -->
+  <div id="auth-wall-container" style="display: none;"></div>
+
   <!-- Top Demo Switcher Bar -->
   <div id="role-switcher-container"></div>
 
@@ -35,14 +38,17 @@
         </div>
       </div>
 
-      <div class="user-profile-badge" id="header-user-profile" style="cursor: pointer;" onclick="App.showUserSwitcherModal()" title="Bấm để đổi tài khoản hoặc đăng xuất">
+      <div class="user-profile-badge" id="header-user-profile">
         <div style="text-align: right; display: flex; flex-direction: column;">
           <strong id="current-user-name" style="font-size: 0.9rem;">Nguyễn Văn A</strong>
           <span id="current-user-team" style="font-size: 0.72rem; color: var(--text-muted);">North Team</span>
         </div>
         <span id="current-user-role-badge" class="role-pill role-sales">SALES</span>
-        <button id="btn-header-login-switch" class="btn-action-inline" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="event.stopPropagation(); App.showUserSwitcherModal()">
+        <button id="btn-header-login-switch" class="btn-action-inline" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="App.showUserSwitcherModal()">
           <span id="header-login-btn-icon"></span> Đổi vai trò
+        </button>
+        <button id="btn-header-logout" class="btn-action-inline" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="App.logout()" title="Đăng xuất khỏi hệ thống">
+          🚪 Thoát
         </button>
       </div>
     </div>

@@ -272,7 +272,11 @@ PERMISSIONS = {
     "VIEW_ALL_REPORTS": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "APPROVE_CUSTOMER": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "FIELD_CHECKIN_CHECKOUT": [ROLES["SALES"], ROLES["ADMIN"]],
-    "UPDATE_CARE_DETAILS": [ROLES["SALES"], ROLES["ADMIN"]]
+    "UPDATE_CARE_DETAILS": [ROLES["SALES"], ROLES["ADMIN"]],
+    "REQUEST_CUSTOMER_UPDATE": [ROLES["SALES"], ROLES["MANAGER"], ROLES["ADMIN"]],
+    "APPROVE_CUSTOMER_UPDATE": [ROLES["MANAGER"], ROLES["ADMIN"]],
+    "MANAGE_PRODUCTS": [ROLES["MANAGER"], ROLES["ADMIN"]],
+    "VIEW_PRODUCTS": [ROLES["SALES"], ROLES["MANAGER"], ROLES["ADMIN"]]
 }
 
 TAB_ACCESS = {
@@ -280,6 +284,8 @@ TAB_ACCESS = {
     "map": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
     "timeline": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
     "customers": [ROLES["ADMIN"], ROLES["MANAGER"], ROLES["SALES"]],
+    "approvals": [ROLES["ADMIN"], ROLES["MANAGER"]],
+    "products": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "reports": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "users": [ROLES["ADMIN"]]
 }
@@ -299,6 +305,85 @@ def filter_customers_by_role(customers, user):
         return customers
     return [c for c in customers if not c.get("AssignedSalesID") or c.get("AssignedSalesID") == user_id]
 
+# ====================================================
+# CUSTOMER APPROVAL WORKFLOW SIMULATOR
+# ====================================================
+class CustomerApprovalService:
+    @staticmethod
+    def create_update_request(customer, new_data, sales_user, reason=""):
+        old_data = {
+            "Phone": customer.get("Phone", ""),
+            "Address": customer.get("Address", ""),
+            "ContactPerson": customer.get("ContactPerson", ""),
+            "CustomerType": customer.get("CustomerType", "NORMAL")
+        }
+        req_id = f"REQ-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        request_obj = {
+            "RequestID": req_id,
+            "CustomerID": customer["CustomerID"],
+            "CustomerName": customer["CustomerName"],
+            "SalesID": sales_user["UserID"],
+            "SalesName": sales_user["Name"],
+            "OldData": old_data,
+            "NewData": new_data,
+            "Reason": reason,
+            "Status": "PENDING",
+            "CreatedAt": datetime.utcnow().isoformat()
+        }
+        return request_obj
+
+    @staticmethod
+    def resolve_request(customer, request_obj, action, approver_user, reject_reason=""):
+        if not check_permission(approver_user["Role"], "APPROVE_CUSTOMER_UPDATE"):
+            raise PermissionError("User does not have permission to resolve customer update requests")
+
+        if action == "APPROVE":
+            # Apply changes to actual customer profile
+            new_data = request_obj["NewData"]
+            for k, v in new_data.items():
+                if v is not None and str(v).strip():
+                    customer[k] = v
+            request_obj["Status"] = "APPROVED"
+            request_obj["ApprovedBy"] = approver_user["UserID"]
+            request_obj["ApprovedByName"] = approver_user["Name"]
+            request_obj["ApprovedAt"] = datetime.utcnow().isoformat()
+            return True, customer
+        elif action == "REJECT":
+            request_obj["Status"] = "REJECTED"
+            request_obj["RejectReason"] = reject_reason
+            request_obj["ApprovedBy"] = approver_user["UserID"]
+            request_obj["ApprovedByName"] = approver_user["Name"]
+            request_obj["ApprovedAt"] = datetime.utcnow().isoformat()
+            return False, customer
+        else:
+            raise ValueError(f"Unknown action: {action}")
+
+# ====================================================
+# PRODUCT SERVICE SIMULATOR
+# ====================================================
+class ProductService:
+    @staticmethod
+    def save_product(product_list, product_data, actor_user):
+        if not check_permission(actor_user["Role"], "MANAGE_PRODUCTS"):
+            raise PermissionError("Only Manager and Admin can manage products")
+        
+        idx = next((i for i, p in enumerate(product_list) if p["ProductID"] == product_data["ProductID"]), -1)
+        if idx >= 0:
+            product_list[idx] = {**product_list[idx], **product_data}
+        else:
+            product_list.append(product_data)
+        return product_list
+
+    @staticmethod
+    def toggle_status(product_list, product_id, actor_user):
+        if not check_permission(actor_user["Role"], "MANAGE_PRODUCTS"):
+            raise PermissionError("Only Manager and Admin can manage products")
+        for p in product_list:
+            if p["ProductID"] == product_id:
+                p["Status"] = "INACTIVE" if p.get("Status") == "ACTIVE" else "ACTIVE"
+                return p
+        return None
+
 class TestRoleBasedAccessControl(unittest.TestCase):
     def setUp(self):
         self.admin = {"UserID": "USR-000", "Name": "Admin", "Role": "ADMIN"}
@@ -306,10 +391,15 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.sales_a = {"UserID": "USR-002", "Name": "Sales A", "Role": "SALES"}
         self.sales_b = {"UserID": "USR-003", "Name": "Sales B", "Role": "SALES"}
         self.mock_customers = [
-            {"CustomerID": "CUST-001", "CustomerName": "Minh Phat", "AssignedSalesID": "USR-002"},
-            {"CustomerID": "CUST-002", "CustomerName": "VinaMart", "AssignedSalesID": "USR-002"},
-            {"CustomerID": "CUST-003", "CustomerName": "Bach Hoa A Chau", "AssignedSalesID": "USR-003"},
-            {"CustomerID": "CUST-004", "CustomerName": "Sao Mai", "AssignedSalesID": ""},
+            {"CustomerID": "CUST-001", "CustomerName": "Minh Phat", "Phone": "0912345601", "Address": "123 Ly Thuong Kiet", "ContactPerson": "Anh Minh", "CustomerType": "NORMAL", "AssignedSalesID": "USR-002"},
+            {"CustomerID": "CUST-002", "CustomerName": "VinaMart", "Phone": "0912345602", "Address": "456 Nguyen Trai", "ContactPerson": "Chi Hoa", "CustomerType": "VIP", "AssignedSalesID": "USR-002"},
+            {"CustomerID": "CUST-003", "CustomerName": "Bach Hoa A Chau", "Phone": "0912345603", "Address": "789 Le Loi", "ContactPerson": "Chu Tam", "CustomerType": "NORMAL", "AssignedSalesID": "USR-003"},
+            {"CustomerID": "CUST-004", "CustomerName": "Sao Mai", "Phone": "0912345604", "Address": "12 Tran Hung Dao", "ContactPerson": "Co Huong", "CustomerType": "NORMAL", "AssignedSalesID": ""},
+        ]
+        self.mock_products = [
+            {"ProductID": "PROD-001", "ProductName": "Kingpetro Moto 4T 10W40", "CategoryID": "DMN_XE_MAY", "Unit": "Thùng", "Packaging": "24 chai x 0.8L", "BasePrice": 1450000, "Status": "ACTIVE"},
+            {"ProductID": "PROD-002", "ProductName": "Kingpetro HD Truck 15W40", "CategoryID": "DMN_OTO", "Unit": "Xô", "Packaging": "Xô 18L", "BasePrice": 1650000, "Status": "ACTIVE"},
+            {"ProductID": "PROD-003", "ProductName": "Kingpetro Industrial Hydraulic 68", "CategoryID": "DMN_CONG_NGHIEP", "Unit": "Phuy", "Packaging": "Phuy 200L", "BasePrice": 14500000, "Status": "INACTIVE"}
         ]
 
     def test_admin_has_full_permissions(self):
@@ -317,13 +407,21 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.assertTrue(check_permission(self.admin["Role"], "RESET_DATABASE"))
         self.assertTrue(check_permission(self.admin["Role"], "MANAGE_USERS"))
         self.assertTrue(check_permission(self.admin["Role"], "VIEW_ALL_CUSTOMERS"))
+        self.assertTrue(check_permission(self.admin["Role"], "APPROVE_CUSTOMER_UPDATE"))
+        self.assertTrue(check_permission(self.admin["Role"], "MANAGE_PRODUCTS"))
         self.assertTrue(can_access_tab(self.admin["Role"], "users"))
         self.assertTrue(can_access_tab(self.admin["Role"], "dashboard"))
+        self.assertTrue(can_access_tab(self.admin["Role"], "approvals"))
+        self.assertTrue(can_access_tab(self.admin["Role"], "products"))
 
-    def test_manager_has_monitoring_but_no_core_settings(self):
+    def test_manager_has_monitoring_and_approvals_and_products(self):
         self.assertTrue(check_permission(self.manager["Role"], "VIEW_ALL_CUSTOMERS"))
         self.assertTrue(check_permission(self.manager["Role"], "VIEW_ALL_REPORTS"))
         self.assertTrue(check_permission(self.manager["Role"], "APPROVE_CUSTOMER"))
+        self.assertTrue(check_permission(self.manager["Role"], "APPROVE_CUSTOMER_UPDATE"))
+        self.assertTrue(check_permission(self.manager["Role"], "MANAGE_PRODUCTS"))
+        self.assertTrue(can_access_tab(self.manager["Role"], "approvals"))
+        self.assertTrue(can_access_tab(self.manager["Role"], "products"))
         # Core settings restricted
         self.assertFalse(check_permission(self.manager["Role"], "MANAGE_SYSTEM_SETTINGS"))
         self.assertFalse(check_permission(self.manager["Role"], "RESET_DATABASE"))
@@ -334,11 +432,87 @@ class TestRoleBasedAccessControl(unittest.TestCase):
     def test_sales_permissions_isolated_to_field_work(self):
         self.assertTrue(check_permission(self.sales_a["Role"], "FIELD_CHECKIN_CHECKOUT"))
         self.assertTrue(check_permission(self.sales_a["Role"], "UPDATE_CARE_DETAILS"))
+        self.assertTrue(check_permission(self.sales_a["Role"], "REQUEST_CUSTOMER_UPDATE"))
+        self.assertTrue(check_permission(self.sales_a["Role"], "VIEW_PRODUCTS"))
+        # Sales cannot approve requests or manage products
+        self.assertFalse(check_permission(self.sales_a["Role"], "APPROVE_CUSTOMER_UPDATE"))
+        self.assertFalse(check_permission(self.sales_a["Role"], "MANAGE_PRODUCTS"))
         self.assertFalse(check_permission(self.sales_a["Role"], "VIEW_ALL_CUSTOMERS"))
         self.assertFalse(check_permission(self.sales_a["Role"], "MANAGE_SYSTEM_SETTINGS"))
-        self.assertFalse(check_permission(self.sales_a["Role"], "APPROVE_CUSTOMER"))
+        self.assertFalse(can_access_tab(self.sales_a["Role"], "approvals"))
+        self.assertFalse(can_access_tab(self.sales_a["Role"], "products"))
         self.assertFalse(can_access_tab(self.sales_a["Role"], "users"))
         self.assertFalse(can_access_tab(self.sales_a["Role"], "reports"))
+
+    def test_customer_update_approval_workflow_approve(self):
+        target_cust = dict(self.mock_customers[0])
+        new_data = {
+            "Phone": "0988777999",
+            "Address": "888 CMT8, P.5, Q.Tân Bình, TP.HCM",
+            "ContactPerson": "Anh Minh Chủ Điểm",
+            "CustomerType": "VIP"
+        }
+        
+        # 1. Sales creates update request
+        req = CustomerApprovalService.create_update_request(target_cust, new_data, self.sales_a, reason="Chủ tiệm đổi SĐT và lên VIP")
+        self.assertEqual(req["Status"], "PENDING")
+        self.assertEqual(req["OldData"]["Phone"], "0912345601")
+        self.assertEqual(req["NewData"]["Phone"], "0988777999")
+
+        # 2. Manager approves request -> Customer data is officially updated
+        approved, updated_cust = CustomerApprovalService.resolve_request(target_cust, req, "APPROVE", self.manager)
+        self.assertTrue(approved)
+        self.assertEqual(req["Status"], "APPROVED")
+        self.assertEqual(req["ApprovedBy"], self.manager["UserID"])
+        self.assertEqual(updated_cust["Phone"], "0988777999")
+        self.assertEqual(updated_cust["Address"], "888 CMT8, P.5, Q.Tân Bình, TP.HCM")
+        self.assertEqual(updated_cust["CustomerType"], "VIP")
+
+    def test_customer_update_approval_workflow_reject(self):
+        target_cust = dict(self.mock_customers[1])
+        original_phone = target_cust["Phone"]
+        new_data = {"Phone": "0900000000"}
+
+        req = CustomerApprovalService.create_update_request(target_cust, new_data, self.sales_a, reason="Sửa nhầm")
+        self.assertEqual(req["Status"], "PENDING")
+
+        # Manager rejects -> Customer profile remains untouched
+        approved, cust_result = CustomerApprovalService.resolve_request(target_cust, req, "REJECT", self.manager, reject_reason="Thông tin sai thực tế")
+        self.assertFalse(approved)
+        self.assertEqual(req["Status"], "REJECTED")
+        self.assertEqual(req["RejectReason"], "Thông tin sai thực tế")
+        self.assertEqual(cust_result["Phone"], original_phone)
+
+    def test_sales_cannot_resolve_approval_request(self):
+        target_cust = dict(self.mock_customers[0])
+        req = CustomerApprovalService.create_update_request(target_cust, {"Phone": "0999999999"}, self.sales_a)
+        
+        with self.assertRaises(PermissionError):
+            CustomerApprovalService.resolve_request(target_cust, req, "APPROVE", self.sales_a)
+
+    def test_product_management_by_manager(self):
+        prods = list(self.mock_products)
+        new_prod = {
+            "ProductID": "PROD-999",
+            "ProductName": "Kingpetro Coolant X",
+            "CategoryID": "PHU_GIA",
+            "Unit": "Can",
+            "Packaging": "Can 4L",
+            "BasePrice": 250000,
+            "Status": "ACTIVE"
+        }
+        # Manager can add product
+        prods = ProductService.save_product(prods, new_prod, self.manager)
+        self.assertEqual(len(prods), 4)
+        self.assertEqual(prods[-1]["ProductID"], "PROD-999")
+
+        # Manager can toggle status
+        toggled = ProductService.toggle_status(prods, "PROD-001", self.manager)
+        self.assertEqual(toggled["Status"], "INACTIVE")
+
+        # Sales attempting to add product raises PermissionError
+        with self.assertRaises(PermissionError):
+            ProductService.save_product(prods, new_prod, self.sales_a)
 
     def test_customer_filtering_for_sales_isolation(self):
         # Sales A should only see CUST-001, CUST-002, and unassigned CUST-004 (total 3)
@@ -360,4 +534,5 @@ class TestRoleBasedAccessControl(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -80,7 +80,7 @@ const App = {
   async init() {
     UI.init();
 
-    // 1. Load active user from LocalStorage for persistence across reloads
+    // 1. Kiểm tra session đăng nhập trong LocalStorage
     const savedUserJson = localStorage.getItem(this.AUTH_STORAGE_KEY);
     if (savedUserJson) {
       try {
@@ -88,12 +88,20 @@ const App = {
         const match = this.users.find(u => u.UserID === parsed.UserID || u.Email === parsed.Email);
         this.currentUser = match || parsed;
       } catch (e) {
-        this.currentUser = this.users[2]; // Default: Sales A
+        this.currentUser = null;
       }
     } else {
-      this.currentUser = this.users[2]; // Default: Sales rep A
+      this.currentUser = null;
     }
 
+    if (!this.currentUser) {
+      // BẮT BUỘC ĐĂNG NHẬP (AUTH WALL): Không cho xem Dashboard hay dữ liệu nếu chưa login
+      this.renderAuthWall();
+      return;
+    }
+
+    // Đã đăng nhập: Hiện toàn bộ ứng dụng và áp dụng phân quyền
+    this.showAuthenticatedApp();
     this.renderRoleSwitcher();
     await this.applyUserRole(this.currentUser);
   },
@@ -419,19 +427,169 @@ const App = {
     }
   },
 
+  renderAuthWall() {
+    const authContainer = document.getElementById("auth-wall-container");
+    const roleSwitcher = document.getElementById("role-switcher-container");
+    const header = document.querySelector(".app-header");
+    const mainWrapper = document.querySelector(".main-wrapper");
+
+    if (roleSwitcher) roleSwitcher.style.display = "none";
+    if (header) header.style.display = "none";
+    if (mainWrapper) mainWrapper.style.display = "none";
+
+    if (!authContainer) return;
+    authContainer.style.display = "flex";
+
+    // Phân loại tài khoản Demo theo 3 vai trò: ADMIN, MANAGER, SALES
+    const adminUsers = this.users.filter(u => u.Role === "ADMIN");
+    const managerUsers = this.users.filter(u => u.Role === "MANAGER");
+    const salesUsers = this.users.filter(u => u.Role === "SALES");
+
+    authContainer.innerHTML = `
+      <div class="auth-wall-screen">
+        <div class="auth-card">
+          <!-- Logo & Title -->
+          <div style="text-align: center; margin-bottom: 1.5rem;">
+            <div class="auth-brand-badge">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+            </div>
+            <h1 style="font-size: 1.45rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.35rem; letter-spacing: -0.5px;">
+              SALES FIELD KINGPETRO
+            </h1>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+              Hệ Thống Quản Lý Tuyến & Hoạt Động Thị Trường
+            </p>
+          </div>
+
+          <!-- Email / Password Login Form -->
+          <form onsubmit="event.preventDefault(); App.handleAuthWallLogin();" style="margin-bottom: 1.5rem;">
+            <div class="form-group" style="margin-bottom: 0.85rem;">
+              <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Email Tài Khoản</label>
+              <input type="email" id="auth-wall-email" class="form-control" placeholder="admin@company.com" required value="admin@company.com" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
+            </div>
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                <label class="form-label" style="font-size: 0.82rem; font-weight: 600; margin-bottom: 0;">Mật Khẩu</label>
+                <span style="font-size: 0.72rem; color: var(--text-muted);">(Demo: bất kỳ)</span>
+              </div>
+              <input type="password" id="auth-wall-pass" class="form-control" placeholder="••••••••" value="123456" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
+            </div>
+            <button type="submit" class="btn-action-large btn-meet-customer" style="width: 100%; padding: 0.75rem; font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+              ${Icons.render('log-in', { size: 16 })} ĐĂNG NHẬP VÀO HỆ THỐNG
+            </button>
+          </form>
+
+          <!-- Quick Demo Role Selection (ADMIN / MANAGER / SALES) -->
+          <div style="border-top: 1px solid var(--border); padding-top: 1.25rem;">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
+              <span>⚡</span> CHỌN NHANH TÀI KHOẢN THEO VAI TRÒ (DEMO):
+            </div>
+
+            <!-- ADMIN Group -->
+            <div style="margin-bottom: 0.75rem;">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #7e22ce; margin-bottom: 0.3rem;">★ VAI TRÒ ADMIN (Toàn Quyền Toàn Hệ Thống & Cấu Hình)</div>
+              ${adminUsers.map(u => `
+                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; border-left: 3px solid #7e22ce;">
+                  <div>
+                    <div class="name">${u.Name}</div>
+                    <div class="desc">${u.Email} • ${u.Team}</div>
+                  </div>
+                  <span class="role-badge role-admin">${u.Role}</span>
+                </button>
+              `).join("")}
+            </div>
+
+            <!-- MANAGER Group -->
+            <div style="margin-bottom: 0.75rem;">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #b45309; margin-bottom: 0.3rem;">★ VAI TRÒ MANAGER (Giám Sát Vùng, Duyệt Đổi Dữ Liệu & Quản Lý Sản Phẩm)</div>
+              ${managerUsers.map(u => `
+                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; border-left: 3px solid #f59e0b;">
+                  <div>
+                    <div class="name">${u.Name}</div>
+                    <div class="desc">${u.Email} • ${u.Team}</div>
+                  </div>
+                  <span class="role-badge role-manager">${u.Role}</span>
+                </button>
+              `).join("")}
+            </div>
+
+            <!-- SALES Group -->
+            <div>
+              <div style="font-size: 0.73rem; font-weight: 700; color: #0369a1; margin-bottom: 0.3rem;">★ VAI TRÒ SALES (Đi Tuyến Thị Trường, Đề Xuất Sửa Đổi KH, Đơn Hàng)</div>
+              ${salesUsers.map(u => `
+                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; margin-bottom: 0.35rem; border-left: 3px solid #0ea5e9;">
+                  <div>
+                    <div class="name">${u.Name}</div>
+                    <div class="desc">${u.Email} • Tuyến phụ trách</div>
+                  </div>
+                  <span class="role-badge role-sales">${u.Role}</span>
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  showAuthenticatedApp() {
+    const authContainer = document.getElementById("auth-wall-container");
+    const roleSwitcher = document.getElementById("role-switcher-container");
+    const header = document.querySelector(".app-header");
+    const mainWrapper = document.querySelector(".main-wrapper");
+
+    if (authContainer) authContainer.style.display = "none";
+    if (roleSwitcher) roleSwitcher.style.display = "block";
+    if (header) header.style.display = "block";
+    if (mainWrapper) mainWrapper.style.display = "block";
+  },
+
+  async handleAuthWallLogin() {
+    const emailInput = document.getElementById("auth-wall-email");
+    const email = (emailInput && emailInput.value.trim()) || "";
+    if (!email) return UI.showToast("Vui lòng nhập email!", "danger");
+
+    UI.showLoading("Đang xác thực thông tin tài khoản...");
+    const res = await ApiService.login(email);
+    UI.hideLoading();
+
+    let targetUser = null;
+    if (res && res.success && res.user) {
+      targetUser = res.user;
+    } else {
+      const matched = this.users.find(u => u.Email.toLowerCase() === email.toLowerCase());
+      if (matched) {
+        targetUser = matched;
+      }
+    }
+
+    if (targetUser) {
+      UI.showToast(`Đăng nhập thành công! Xin chào ${targetUser.Name} (${targetUser.Role})`, "success");
+      this.showAuthenticatedApp();
+      await this.applyUserRole(targetUser);
+    } else {
+      UI.showToast("Không tìm thấy người dùng có email này trong hệ thống!", "danger");
+    }
+  },
+
   async loginAsUser(userId) {
     const u = this.users.find(x => x.UserID === userId);
     if (u) {
       UI.closeModal();
-      UI.showToast(`Đã chuyển sang tài khoản ${u.Name} (${u.Role})`, "success");
+      this.showAuthenticatedApp();
+      UI.showToast(`Đã đăng nhập vai trò: ${u.Role} (${u.Name})`, "success");
       await this.applyUserRole(u);
     }
   },
 
   logout() {
     localStorage.removeItem(this.AUTH_STORAGE_KEY);
+    this.currentUser = null;
     UI.showToast("Đã đăng xuất khỏi tài khoản!", "info");
-    this.showLoginModal();
+    this.renderAuthWall();
   },
 
   /**

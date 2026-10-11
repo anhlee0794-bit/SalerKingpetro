@@ -29,8 +29,20 @@ const ProductService = {
     return this.UNITS.find(u => u.name.toLowerCase() === (name || "").toLowerCase()) || this.UNITS[0];
   },
 
+  getCatalog() {
+    if (typeof MockDatabase !== "undefined") {
+      try {
+        const db = MockDatabase.getDB();
+        if (db && db.PRODUCTS && db.PRODUCTS.length > 0) {
+          return db.PRODUCTS;
+        }
+      } catch (e) {}
+    }
+    return this.CATALOG;
+  },
+
   getProductById(id) {
-    return this.CATALOG.find(p => p.id === id);
+    return this.getCatalog().find(p => p.id === id);
   },
 
   /**
@@ -82,7 +94,8 @@ const ProductService = {
 
   renderProductOptions(selectedId = "") {
     let html = `<option value="">-- Chọn mặt hàng từ danh mục --</option>`;
-    html += this.CATALOG.map(p => {
+    const activeList = this.getCatalog().filter(p => p.status !== "INACTIVE");
+    html += activeList.map(p => {
       const isSel = (p.id === selectedId || p.name === selectedId) ? "selected" : "";
       return `<option value="${p.name}" data-unit="${p.defaultUnit}" data-ratio="${p.ratio}" ${isSel}>${p.name} [ĐVT: ${p.defaultUnit}]</option>`;
     }).join("");

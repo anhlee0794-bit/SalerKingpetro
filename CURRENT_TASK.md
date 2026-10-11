@@ -1,5 +1,31 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Nâng Cấp Authentication Wall, Approval Flow & Product Management (2026-10-11)
+- [x] **1. Bắt Buộc Đăng Nhập Khi Truy Cập (Authentication Wall)**:
+  - [x] Chặn toàn bộ xem Dashboard/dữ liệu nếu chưa đăng nhập; hiển thị Login Screen (`#auth-wall-container`) che phủ hoàn toàn.
+  - [x] Cung cấp Form đăng nhập bằng Email/Password tiêu chuẩn.
+  - [x] Cung cấp 3 cụm nút chọn nhanh tài khoản Demo theo vai trò (ADMIN, MANAGER, SALES).
+  - [x] Lưu trạng thái phiên vào `localStorage`, hiển thị đúng tên & vai trò ở Header và điều hướng về workspace tương ứng.
+  - [x] Bổ sung nút Đăng Xuất (Logout) ở Header để xóa session và quay về Login Screen ngay lập tức.
+- [x] **2. Quy Trình Cập Nhật Thông Tin Khách Hàng (Approval Flow cho Sales)**:
+  - [x] Thêm nút "Đề xuất sửa" trên thẻ khách hàng của Sales (`frontend/js/sales_app.js`).
+  - [x] Sales gửi yêu cầu (SĐT, Người liên hệ, Địa chỉ, Loại khách hàng, Lý do) vào hàng chờ `CUSTOMER_UPDATE_REQUESTS` với trạng thái `PENDING` (không ghi đè trực tiếp DB).
+  - [x] Bổ sung Tab "Phê Duyệt Thay Đổi" (`approvals`) cho MANAGER và ADMIN (`frontend/js/manager_app.js`).
+  - [x] Hiển thị bộ lọc trạng thái (Tất cả, Chờ duyệt, Đã duyệt, Đã từ chối).
+  - [x] Trực quan hóa so sánh Cũ vs Mới (Diff Viewer với cột đỏ nhạt / xanh nhạt) làm nổi bật các trường có thay đổi.
+  - [x] Manager có 2 lựa chọn: [Chấp Thuận] (ghi đè chính thức vào hồ sơ khách hàng `CUSTOMERS`) hoặc [Từ Chối] (yêu cầu nhập lý do từ chối).
+- [x] **3. Quản Lý Danh Mục Hàng Hóa Dành Cho Manager (Product Management)**:
+  - [x] Bổ sung Tab "Quản Lý Hàng Hóa" (`products`) trong Manager Desktop Workspace (`frontend/js/manager_app.js`).
+  - [x] Chỉ tài khoản MANAGER và ADMIN mới có quyền truy cập, thêm mới, sửa đơn giá/quy cách/phân loại hoặc toggle Bật/Tắt kinh doanh (`ACTIVE`/`INACTIVE`).
+  - [x] Tài khoản SALES chỉ có quyền xem danh mục sản phẩm đang mở bán (`ACTIVE`) để lên đơn hoặc báo cáo tồn kho (`frontend/js/products.js`), hoàn toàn bị chặn sửa đổi.
+  - [x] Hiển thị các thẻ KPI thống kê tổng hàng hóa, hàng đang bán, tạm ngừng, và bộ lọc phân loại/tìm kiếm.
+- [x] **4. Cập Nhật State/Database & Kiểm Thử Logic**:
+  - [x] Bổ sung các bảng dữ liệu `CUSTOMER_UPDATE_REQUESTS`, `PRODUCTS`, `PRODUCT_CATEGORIES` trong `MockDatabase` và migration tự động.
+  - [x] Mở rộng ma trận phân quyền `frontend/js/permissions.js` với các hành động `REQUEST_CUSTOMER_UPDATE`, `APPROVE_CUSTOMER_UPDATE`, `MANAGE_PRODUCTS`, `VIEW_PRODUCTS`.
+  - [x] Viết thêm 4 test cases cho Approval Flow và Product Management trong `tests/test_logic.py` (Pass 22/22 unit tests).
+- [x] **5. Tuân Thủ AGENTS Directive & Skill Workflow-Logger**:
+  - [x] Cập nhật tài liệu kiến trúc `AI_CONTEXT.md`, tiến độ `CURRENT_TASK.md` và nhật ký chi tiết `CHANGELOG_AI.md`.
+
 ## Phân Quyền Tài Khoản Theo Vai Trò (RBAC) & Quản Lý Phiên Đăng Nhập
 - [x] Tạo module cấu hình phân quyền riêng biệt: `frontend/js/permissions.js` với ma trận vai trò (ADMIN, MANAGER, SALES).
 - [x] Quản lý phiên đăng nhập bền vững (Auth State qua `localStorage`) và xây dựng Modal Đăng Nhập (Login Modal) + Modal Chuyển Vai Trò (Role Switcher Modal).
