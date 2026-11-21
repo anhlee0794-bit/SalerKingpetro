@@ -1,5 +1,21 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Triển Khai Thực Tế Lên Hosting cPanel & Tên Miền hiepphucduc.vn (Hoàn Thành 2026-11-21)
+- [x] **1. Cấu hình DNS & Hosting**: Trỏ bản ghi A về IP `139.99.50.190`, thêm tên miền `hiepphucduc.vn` vào cPanel.
+- [x] **2. Cài đặt SSL Bảo Mật**: Kích hoạt chứng chỉ AutoSSL xanh cho `hiepphucduc.vn` để hỗ trợ GPS di động.
+- [x] **3. Cài đặt Web Chính WordPress**: Triển khai website giới thiệu công ty nhớt qua WP Toolkit tại `https://hiepphucduc.vn`.
+- [x] **4. Khởi tạo Cơ Sở Dữ Liệu MySQL**: Tạo database `luatdoan_kingpetrosaler` và import thành công 11 bảng chuẩn hóa qua phpMyAdmin.
+- [x] **5. Triển khai Ứng dụng Sales Field**: Đưa phân hệ `saler` lên `https://hiepphucduc.vn/saler/` và kết nối API `https://hiepphucduc.vn/saler/api/api.php` hoạt động 100%.
+
+## Kế Hoạch Kiểm Thử Toàn Diện Hệ Thống Thực Tế
+- [ ] **Kịch bản 1: Kiểm thử Tài khoản Sales (Tác nghiệp ca & GPS)**
+- [ ] **Kịch bản 2: Kiểm thử Chăm sóc Khách hàng 4 khối & Đơn vị tính (Quy đổi Thùng/Xô/Chai/Phuy)**
+- [ ] **Kịch bản 3: Kiểm thử Đề xuất sửa đổi thông tin khách hàng (Approval Flow)**
+- [ ] **Kịch bản 4: Kiểm thử Quản lý & Giám sát (Dashboard, Bản đồ lộ trình OSRM, Timeline)**
+- [ ] **Kịch bản 5: Kiểm thử Phê duyệt đề xuất & Quản lý danh mục hàng hóa (Manager)**
+- [ ] **Kịch bản 6: Kiểm thử Phân tuyến & Nhân sự (Admin)**
+
+
 ## Nâng Cấp Authentication Wall, Approval Flow & Product Management (2026-10-11)
 - [x] **1. Bắt Buộc Đăng Nhập Khi Truy Cập (Authentication Wall)**:
   - [x] Chặn toàn bộ xem Dashboard/dữ liệu nếu chưa đăng nhập; hiển thị Login Screen (`#auth-wall-container`) che phủ hoàn toàn.

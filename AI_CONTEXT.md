@@ -26,6 +26,11 @@ Hệ thống gồm 2 thành phần chính:
 - **LOGS**: `LogID`, `Timestamp`, `Level`, `Source`, `Message`, `Payload`
 
 ## 3. Trạng thái hiện tại
+- **Môi trường Production Thực Tế (Live Deployment)**:
+  - Domain chính thức: `https://hiepphucduc.vn/saler/`
+  - Backend API: `https://hiepphucduc.vn/saler/api/api.php`
+  - Database: MySQL `luatdoan_kingpetrosaler` trên hosting cPanel (`139.99.50.190`).
+  - Web chính WordPress chạy tại: `https://hiepphucduc.vn/`.
 - Đã nâng cấp toàn diện Hệ thống Quản Lý Chăm Sóc Khách Hàng (Customer Care & Retention Engine).
 - Tự động tính toán chu kỳ chăm sóc, phát hiện cảnh báo quá hạn đỏ/cam/xanh, thu thập 4 khối dữ liệu khi ghé thăm và quản lý tồn kho/công nợ.
 - Đã hoàn thiện Hệ thống Phân Quyền Theo Vai Trò (RBAC): Ma trận quyền hạn độc lập (`frontend/js/permissions.js`), quản lý phiên Auth bền vững qua `localStorage`, phân quyền tab và nút bấm (UI Guard), chặn thao tác nhạy cảm (Action Guard) và Tab Quản lý nhân sự & Phân bổ tuyến cho ADMIN.

@@ -1,5 +1,23 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-21] - Triển Khai Thực Tế Hệ Thống Lên Tên Miền hiepphucduc.vn (Production cPanel & MySQL)
+- **Mục đích / Bối cảnh**: Hoàn thành cấu hình DNS, chứng chỉ bảo mật AutoSSL, cài đặt WordPress cho trang chủ và triển khai hệ thống quản lý SalerKingpetro lên môi trường sản xuất thực tế trên hosting cPanel.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/api.js`: Cập nhật endpoint mặc định sang production URL `https://hiepphucduc.vn/saler/api/api.php`.
+  - `backend-php/config.php`: Cấu hình database kết nối MySQL `luatdoan_kingpetrosaler`.
+  - `saler.zip`: Đóng gói bộ cài đặt bao gồm cả Frontend SPA và Backend PHP API.
+  - `AI_CONTEXT.md` & `CURRENT_TASK.md`: Cập nhật trạng thái môi trường production.
+- **Chi tiết kỹ thuật**:
+  - Trỏ DNS thành công A record `hiepphucduc.vn` và `www.hiepphucduc.vn` về IP server `139.99.50.190`.
+  - AutoSSL được xác thực thành công (Active đến 2027) đảm bảo hoạt động định vị HTML5 Geolocation trên di động.
+  - Cài đặt WordPress trang giới thiệu tại thư mục gốc `/home/luatdoan/hiepphucduc.vn`.
+  - Khởi tạo Database MySQL `luatdoan_kingpetrosaler` và import thành công toàn bộ schema cùng dữ liệu seed ban đầu (27 queries).
+  - Triển khai phân hệ ứng dụng tại `https://hiepphucduc.vn/saler/` và REST API tại `https://hiepphucduc.vn/saler/api/api.php`.
+- **Kết quả kiểm thử & xác minh**:
+  - Kiểm tra REST API endpoint: `curl https://hiepphucduc.vn/saler/api/api.php?action=getSettings` -> Trả về JSON thành công 100%.
+  - Kiểm tra kết nối cơ sở dữ liệu: `curl https://hiepphucduc.vn/saler/api/api.php?action=getUsers` -> Trả về 5 tài khoản hệ thống (Admin, Manager, Sales).
+
+
 ## [2026-10-11] - Authentication Wall, Approval Flow Khách Hàng & Quản Lý Danh Mục Hàng Hóa Cho Manager
 - **Mục đích / Bối cảnh**: Nâng cấp hệ thống "SALES FIELD" theo yêu cầu nghiệp vụ chuyên sâu:
   1. Bắt buộc đăng nhập khi truy cập (Authentication Wall), chặn toàn bộ truy cập trái phép.

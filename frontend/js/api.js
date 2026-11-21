@@ -10,7 +10,7 @@ const ApiService = {
   useMockKey: "sales_field_use_mock",
 
   getGasUrl() {
-    return localStorage.getItem(this.gasUrlKey) || "";
+    return localStorage.getItem(this.gasUrlKey) || "https://hiepphucduc.vn/saler/api/api.php";
   },
 
   setGasUrl(url) {

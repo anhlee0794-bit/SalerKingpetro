@@ -72,3 +72,7 @@ logs/
 *.log
 temp/
 tmp/
+
+# Archives
+*.zip
+
