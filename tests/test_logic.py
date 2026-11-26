@@ -276,7 +276,8 @@ PERMISSIONS = {
     "REQUEST_CUSTOMER_UPDATE": [ROLES["SALES"], ROLES["MANAGER"], ROLES["ADMIN"]],
     "APPROVE_CUSTOMER_UPDATE": [ROLES["MANAGER"], ROLES["ADMIN"]],
     "MANAGE_PRODUCTS": [ROLES["MANAGER"], ROLES["ADMIN"]],
-    "VIEW_PRODUCTS": [ROLES["SALES"], ROLES["MANAGER"], ROLES["ADMIN"]]
+    "VIEW_PRODUCTS": [ROLES["SALES"], ROLES["MANAGER"], ROLES["ADMIN"]],
+    "SIMULATE_GPS": [ROLES["ADMIN"]]
 }
 
 TAB_ACCESS = {
@@ -287,7 +288,8 @@ TAB_ACCESS = {
     "approvals": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "products": [ROLES["ADMIN"], ROLES["MANAGER"]],
     "reports": [ROLES["ADMIN"], ROLES["MANAGER"]],
-    "users": [ROLES["ADMIN"]]
+    "users": [ROLES["ADMIN"]],
+    "settings": [ROLES["ADMIN"]]
 }
 
 def check_permission(role, permission_key):
@@ -434,7 +436,10 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.assertTrue(check_permission(self.sales_a["Role"], "UPDATE_CARE_DETAILS"))
         self.assertTrue(check_permission(self.sales_a["Role"], "REQUEST_CUSTOMER_UPDATE"))
         self.assertTrue(check_permission(self.sales_a["Role"], "VIEW_PRODUCTS"))
-        # Sales cannot approve requests or manage products
+        # Sales cannot approve requests, manage products, or simulate GPS
+        self.assertFalse(check_permission(self.sales_a["Role"], "SIMULATE_GPS"))
+        self.assertFalse(check_permission(self.manager["Role"], "SIMULATE_GPS"))
+        self.assertTrue(check_permission(self.admin["Role"], "SIMULATE_GPS"))
         self.assertFalse(check_permission(self.sales_a["Role"], "APPROVE_CUSTOMER_UPDATE"))
         self.assertFalse(check_permission(self.sales_a["Role"], "MANAGE_PRODUCTS"))
         self.assertFalse(check_permission(self.sales_a["Role"], "VIEW_ALL_CUSTOMERS"))
@@ -531,6 +536,431 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         # Admin and Manager see all 4
         self.assertEqual(len(filter_customers_by_role(self.mock_customers, self.admin)), 4)
         self.assertEqual(len(filter_customers_by_role(self.mock_customers, self.manager)), 4)
+
+    def test_password_authentication_and_change_flow(self):
+        users = [
+            {"UserID": "USR-000", "Name": "Admin", "Email": "admin@company.com", "Role": "ADMIN", "Status": "ACTIVE"},
+            {"UserID": "USR-002", "Name": "Sales A", "Email": "sales.a@company.com", "Role": "SALES", "Status": "ACTIVE"}
+        ]
+        
+        # 1. Default password is '123456'
+        login_res = AuthService.verify_login(users, "admin@company.com", "123456")
+        self.assertTrue(login_res["success"])
+        self.assertEqual(login_res["user"]["UserID"], "USR-000")
+
+        # 2. Wrong password fails
+        login_fail = AuthService.verify_login(users, "admin@company.com", "wrong_pass")
+        self.assertFalse(login_fail["success"])
+        self.assertIn("Mật khẩu không chính xác", login_fail["message"])
+
+        # 3. Change password with incorrect old password fails
+        change_fail = AuthService.change_password(users, "USR-000", "wrong_old", "new_secret_123")
+        self.assertFalse(change_fail["success"])
+
+        # 4. Change password with short password fails (< 6 chars)
+        short_fail = AuthService.change_password(users, "USR-000", "123456", "123")
+        self.assertFalse(short_fail["success"])
+
+        # 5. Change password successfully
+        change_ok = AuthService.change_password(users, "USR-000", "123456", "new_secret_123")
+        self.assertTrue(change_ok["success"])
+
+        # 6. Login with new password succeeds, old password fails
+        self.assertFalse(AuthService.verify_login(users, "admin@company.com", "123456")["success"])
+        self.assertTrue(AuthService.verify_login(users, "admin@company.com", "new_secret_123")["success"])
+
+    def test_jwt_token_3_day_persistence_and_expiry(self):
+        user = {"UserID": "USR-002", "Name": "Nguyễn Văn A", "Email": "sales.a@company.com", "Role": "SALES", "Status": "ACTIVE"}
+        now_ts = 1795690000
+
+        # 1. Generate 3-day token (259200s)
+        tok_data = AuthService.generate_jwt(user, ttl_seconds=3 * 86400, now_ts=now_ts)
+        self.assertIn("token", tok_data)
+        self.assertEqual(tok_data["expiresAt"], (now_ts + 3 * 86400) * 1000)
+
+        # 2. Verify valid within 3 days (e.g. after 2 days 23 hours)
+        payload_ok = AuthService.verify_jwt(tok_data["token"], now_ts=now_ts + 2 * 86400 + 82800)
+        self.assertIsNotNone(payload_ok)
+        self.assertEqual(payload_ok["sub"], "USR-002")
+        self.assertEqual(payload_ok["role"], "SALES")
+
+        # 3. Expired exactly at or after 3 days (259200s)
+        payload_expired = AuthService.verify_jwt(tok_data["token"], now_ts=now_ts + 3 * 86400)
+        self.assertIsNone(payload_expired)
+
+        # 4. Tampered signature must be rejected immediately
+        parts = tok_data["token"].split(".")
+        tampered_token = f"{parts[0]}.{parts[1]}.tampered_sig_xyz"
+        self.assertIsNone(AuthService.verify_jwt(tampered_token, now_ts=now_ts + 60))
+
+    def test_admin_user_crud_and_settings_protection(self):
+        # 1. Only ADMIN can access 'settings' and 'users' tabs
+        self.assertTrue(can_access_tab("ADMIN", "settings"))
+        self.assertFalse(can_access_tab("MANAGER", "settings"))
+        self.assertFalse(can_access_tab("SALES", "settings"))
+
+        users = [
+            {"UserID": "USR-000", "Name": "Admin Gốc", "Email": "admin@company.com", "Role": "ADMIN", "Status": "ACTIVE"},
+            {"UserID": "USR-001", "Name": "Quản Lý Nguyễn", "Email": "manager@company.com", "Role": "MANAGER", "Status": "ACTIVE"},
+            {"UserID": "USR-002", "Name": "Sales A", "Email": "sales.a@company.com", "Role": "SALES", "Status": "ACTIVE"}
+        ]
+        customers = [dict(c) for c in self.mock_customers]
+
+        # 2. Admin edits Manager info (Name, Phone, Team)
+        res_edit = UserManagementSimulator.save_user(users, {
+            "UserID": "USR-001",
+            "Name": "Trưởng Phòng Kinh Doanh Minh",
+            "Email": "manager.minh@hiepphucduc.vn",
+            "Role": "MANAGER",
+            "Status": "ACTIVE"
+        }, caller_role="ADMIN")
+        self.assertTrue(res_edit["success"])
+        self.assertEqual(users[1]["Name"], "Trưởng Phòng Kinh Doanh Minh")
+
+        # 3. Manager cannot edit users
+        with self.assertRaises(PermissionError):
+            UserManagementSimulator.save_user(users, {"UserID": "USR-002", "Name": "Hack", "Email": "x@y.com"}, caller_role="MANAGER")
+
+        # 4. Cannot demote or delete the sole active ADMIN
+        demote_sole_admin = UserManagementSimulator.save_user(users, {
+            "UserID": "USR-000",
+            "Name": "Admin Gốc",
+            "Email": "admin@company.com",
+            "Role": "SALES",
+            "Status": "ACTIVE"
+        }, caller_role="ADMIN")
+        self.assertFalse(demote_sole_admin["success"])
+        self.assertFalse(UserManagementSimulator.delete_user(users, customers, "USR-000", caller_role="ADMIN")["success"])
+
+        # 5. Deleting a Sales rep unassigns their customer routes cleanly
+        del_sales = UserManagementSimulator.delete_user(users, customers, "USR-002", caller_role="ADMIN")
+        self.assertTrue(del_sales["success"])
+        self.assertEqual(len(users), 2)
+        self.assertEqual(customers[0]["AssignedSalesID"], "")
+
+    def test_geocoding_result_normalization_osm_and_photon(self):
+        # 1. Normalize Nominatim OSM payload
+        osm_raw = [{"display_name": "128 Nguyễn Trãi, Quận 1, TP.HCM, Việt Nam", "lat": "10.768512", "lon": "106.689234"}]
+        osm_parsed = GeocodingNormalizer.parse_nominatim(osm_raw)
+        self.assertEqual(len(osm_parsed), 1)
+        self.assertAlmostEqual(osm_parsed[0]["lat"], 10.768512, places=5)
+        self.assertAlmostEqual(osm_parsed[0]["lng"], 106.689234, places=5)
+        self.assertEqual(osm_parsed[0]["source"], "OSM")
+
+        # 2. Fallback Photon GeoJSON payload ([lon, lat] order!)
+        photon_raw = {
+            "features": [{
+                "geometry": {"coordinates": [106.700911, 10.776889]},
+                "properties": {"housenumber": "45", "street": "Lê Lợi", "district": "Quận 1", "city": "TP.HCM", "country": "Việt Nam"}
+            }]
+        }
+        ph_parsed = GeocodingNormalizer.parse_photon(photon_raw)
+        self.assertEqual(len(ph_parsed), 1)
+        self.assertAlmostEqual(ph_parsed[0]["lat"], 10.776889, places=5)
+        self.assertAlmostEqual(ph_parsed[0]["lng"], 106.700911, places=5)
+        self.assertIn("Lê Lợi", ph_parsed[0]["displayName"])
+
+    def test_checkout_care_visit_nested_pascal_and_flat_camel_mapping(self):
+        # 1. Nested careData payload from SalesApp (PascalCase)
+        nested_payload = {
+            "visitId": "VIS-101",
+            "salesId": "USR-002",
+            "careData": {
+                "SelectedProduct": "KingPetro 20W50",
+                "DistributedQty": "12",
+                "DistributedUnit": "Xô",
+                "InventoryQty": "35",
+                "InventoryUnit": "Xô",
+                "ReorderDemand": "Thêm 5 xô tuần sau",
+                "RecordedDebt": "18500000",
+                "NewOrderQty": "8",
+                "NewOrderUnit": "Thùng",
+                "Result": "Có nhu cầu",
+                "DiscussionDetails": "Đại lý bán tốt dòng xe tải"
+            }
+        }
+        mapped = CarePayloadNormalizer.normalize(nested_payload, existing_stock=40, existing_unit="Thùng", existing_debt=28000000)
+        self.assertEqual(mapped["distributed_qty"], 12)
+        self.assertEqual(mapped["inventory_qty"], 35)
+        self.assertEqual(mapped["inventory_unit"], "Xô")
+        self.assertEqual(mapped["reorder_demand"], "Thêm 5 xô tuần sau")
+        self.assertEqual(mapped["recorded_debt"], 18500000.0)
+        self.assertEqual(mapped["new_order_qty"], 8)
+        self.assertEqual(mapped["customer_stock"], 35)
+        self.assertEqual(mapped["customer_debt"], 18500000.0)
+
+        # 2. Blank optional stock/debt preserves existing customer stock & debt instead of wiping to 0
+        blank_payload = {
+            "visitId": "VIS-102",
+            "careData": {"DistributedQty": "2", "InventoryQty": "", "RecordedDebt": "", "Result": "Đã chăm sóc tốt"}
+        }
+        mapped_blank = CarePayloadNormalizer.normalize(blank_payload, existing_stock=40, existing_unit="Thùng", existing_debt=28000000)
+        self.assertEqual(mapped_blank["customer_stock"], 40)
+        self.assertEqual(mapped_blank["customer_unit"], "Thùng")
+        self.assertEqual(mapped_blank["customer_debt"], 28000000.0)
+
+    def test_offline_queue_no_mock_fallback_and_fifo_flush(self):
+        dispatcher = OfflineQueueSimulator()
+
+        # 1. Admin action while offline does NOT silently mutate fake MockDatabase — returns explicit offline error
+        admin_res = dispatcher.dispatch("saveUser", {"userData": {"Name": "Test"}}, is_online=False)
+        self.assertFalse(admin_res["success"])
+        self.assertTrue(admin_res["offline"])
+
+        # 2. Field Sales actions while offline queue cleanly with temporary IDs
+        s_res = dispatcher.dispatch("startWork", {"salesId": "USR-002", "lat": 10.77, "lng": 106.69}, is_online=False)
+        self.assertTrue(s_res["success"])
+        self.assertTrue(s_res["queuedOffline"])
+        temp_sid = s_res["SessionID"]
+        self.assertTrue(temp_sid.startswith("SES-OFFLINE-"))
+
+        g_res = dispatcher.dispatch("recordGps", {"sessionId": temp_sid, "salesId": "USR-002", "lat": 10.78, "lng": 106.70}, is_online=False)
+        self.assertTrue(g_res["queuedOffline"])
+        self.assertEqual(len(dispatcher.queue), 2)
+
+        # 3. Reconnecting flushes FIFO and remaps SES-OFFLINE-* -> real server SessionID
+        flush_res = dispatcher.flush(is_online=True)
+        self.assertEqual(flush_res["synced"], 2)
+        self.assertEqual(flush_res["remaining"], 0)
+        self.assertEqual(dispatcher.server_log[0]["action"], "startWork")
+        real_sid = dispatcher.server_log[0]["assignedSessionId"]
+        self.assertEqual(dispatcher.server_log[1]["sessionId"], real_sid)
+
+    def test_gps_logs_90_day_retention_cleanup_preserves_visits(self):
+        now_ts = 1795690000
+        gps_logs = [
+            {"id": 1, "ts": now_ts - 120 * 86400},  # 120 days old -> purge
+            {"id": 2, "ts": now_ts - 91 * 86400},   # 91 days old  -> purge
+            {"id": 3, "ts": now_ts - 89 * 86400},   # 89 days old  -> keep
+            {"id": 4, "ts": now_ts - 300}           # 5 mins old   -> keep
+        ]
+        visits = [
+            {"visit_id": "VIS-OLD", "ts": now_ts - 365 * 86400, "new_order_qty": 20}
+        ]
+        res = GpsRetentionCleaner.purge(gps_logs, visits, retention_days=90, now_ts=now_ts)
+        self.assertEqual(res["deletedCount"], 2)
+        self.assertEqual([g["id"] for g in gps_logs], [3, 4])
+        # Visits history (1 year old) is 100% preserved forever
+        self.assertEqual(len(visits), 1)
+
+class CarePayloadNormalizer:
+    @staticmethod
+    def normalize(params, existing_stock=0, existing_unit="Thùng", existing_debt=0.0):
+        care = params.get("careData") if isinstance(params.get("careData"), dict) else params
+
+        def pick(p_key, c_key, default=""):
+            if care.get(p_key, "") != "":
+                return care[p_key]
+            if care.get(c_key, "") != "":
+                return care[c_key]
+            if params.get(p_key, "") != "":
+                return params[p_key]
+            if params.get(c_key, "") != "":
+                return params[c_key]
+            return default
+
+        raw_inv = pick("InventoryQty", "inventoryQty", "")
+        raw_debt = pick("RecordedDebt", "recordedDebt", "")
+        inv_qty = int(raw_inv) if raw_inv != "" else 0
+        inv_unit = pick("InventoryUnit", "inventoryUnit", "Thùng") or "Thùng"
+        rec_debt = float(raw_debt) if raw_debt != "" else 0.0
+        return {
+            "distributed_qty": int(pick("DistributedQty", "distributedQty", 0)),
+            "inventory_qty": inv_qty,
+            "inventory_unit": inv_unit,
+            "reorder_demand": str(pick("ReorderDemand", "reorderDemand", "")),
+            "recorded_debt": rec_debt,
+            "new_order_qty": int(pick("NewOrderQty", "newOrderQty", 0)),
+            "customer_stock": inv_qty if raw_inv != "" else existing_stock,
+            "customer_unit": inv_unit if raw_inv != "" else existing_unit,
+            "customer_debt": rec_debt if raw_debt != "" else existing_debt
+        }
+
+class OfflineQueueSimulator:
+    QUEUEABLE = {"startWork", "endWork", "recordGps", "checkinVisit", "cancelVisit", "checkoutVisit", "checkoutCareVisit", "requestCustomerUpdate"}
+
+    def __init__(self):
+        self.queue = []
+        self.server_log = []
+
+    def dispatch(self, action, params, is_online=True):
+        if not is_online:
+            if action in self.QUEUEABLE:
+                p = dict(params)
+                res = {"success": True, "queuedOffline": True}
+                if action == "startWork":
+                    temp_sid = f"SES-OFFLINE-{len(self.queue) + 1}"
+                    p["tempSessionId"] = temp_sid
+                    res["SessionID"] = temp_sid
+                self.queue.append({"action": action, "params": p})
+                return res
+            return {"success": False, "offline": True, "message": "Mất sóng mạng"}
+        return {"success": True}
+
+    def flush(self, is_online=True):
+        if not is_online:
+            return {"synced": 0, "remaining": len(self.queue)}
+        sid_map = {}
+        synced = 0
+        while self.queue:
+            entry = self.queue.pop(0)
+            p = dict(entry["params"])
+            if p.get("sessionId") in sid_map:
+                p["sessionId"] = sid_map[p["sessionId"]]
+            if entry["action"] == "startWork":
+                real_sid = f"SES-REAL-{synced + 100}"
+                if p.get("tempSessionId"):
+                    sid_map[p["tempSessionId"]] = real_sid
+                self.server_log.append({"action": "startWork", "assignedSessionId": real_sid})
+            else:
+                self.server_log.append({"action": entry["action"], "sessionId": p.get("sessionId")})
+            synced += 1
+        return {"synced": synced, "remaining": 0}
+
+class GpsRetentionCleaner:
+    @staticmethod
+    def purge(gps_logs, visits, retention_days=90, now_ts=1795690000):
+        cutoff = now_ts - max(7, int(retention_days)) * 86400
+        before = len(gps_logs)
+        gps_logs[:] = [g for g in gps_logs if g["ts"] >= cutoff]
+        return {"deletedCount": before - len(gps_logs), "preservedVisits": len(visits)}
+
+class GeocodingNormalizer:
+    @staticmethod
+    def parse_nominatim(items):
+        out = []
+        for it in (items or []):
+            try:
+                lat, lng = float(it["lat"]), float(it["lon"])
+                out.append({"displayName": it.get("display_name", ""), "lat": lat, "lng": lng, "source": "OSM"})
+            except (KeyError, ValueError, TypeError):
+                pass
+        return out
+
+    @staticmethod
+    def parse_photon(geojson):
+        out = []
+        for f in (geojson or {}).get("features", []):
+            coords = (f.get("geometry") or {}).get("coordinates") or []
+            if len(coords) >= 2:
+                p = f.get("properties") or {}
+                parts = [p.get(k) for k in ("name", "housenumber", "street", "district", "city", "country") if p.get(k)]
+                out.append({
+                    "displayName": ", ".join(parts),
+                    "lat": float(coords[1]),
+                    "lng": float(coords[0]),
+                    "source": "Photon"
+                })
+        return out
+
+class UserManagementSimulator:
+    @staticmethod
+    def save_user(users, u_data, caller_role="ADMIN"):
+        if not check_permission(caller_role, "MANAGE_USERS"):
+            raise PermissionError("Only ADMIN can manage users")
+        uid = u_data.get("UserID", "")
+        target = next((u for u in users if u["UserID"] == uid), None)
+        if target:
+            new_role = u_data.get("Role", target["Role"])
+            new_status = u_data.get("Status", target["Status"])
+            if target["Role"] == "ADMIN" and (new_role != "ADMIN" or new_status != "ACTIVE"):
+                active_admins = sum(1 for u in users if u["Role"] == "ADMIN" and u["Status"] == "ACTIVE")
+                if active_admins <= 1:
+                    return {"success": False, "message": "Cannot demote or lock the last active ADMIN"}
+            target.update({
+                "Name": u_data["Name"],
+                "Email": u_data["Email"],
+                "Role": new_role,
+                "Status": new_status
+            })
+            return {"success": True, "user": target}
+        users.append(u_data)
+        return {"success": True, "user": u_data}
+
+    @staticmethod
+    def delete_user(users, customers, target_uid, caller_role="ADMIN"):
+        if not check_permission(caller_role, "MANAGE_USERS"):
+            raise PermissionError("Only ADMIN can delete users")
+        idx = next((i for i, u in enumerate(users) if u["UserID"] == target_uid), -1)
+        if idx < 0:
+            return {"success": False}
+        if users[idx]["Role"] == "ADMIN" and sum(1 for u in users if u["Role"] == "ADMIN") <= 1:
+            return {"success": False, "message": "Cannot delete sole ADMIN"}
+        users.pop(idx)
+        for c in customers:
+            if c.get("AssignedSalesID") == target_uid:
+                c["AssignedSalesID"] = ""
+        return {"success": True}
+
+import base64
+import hashlib
+import hmac
+import json
+
+class AuthService:
+    SECRET = b"KingPetro_Test_JWT_Secret"
+
+    @staticmethod
+    def _b64url_encode(raw_bytes):
+        return base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode("ascii")
+
+    @staticmethod
+    def _b64url_decode(text):
+        pad = "=" * ((4 - len(text) % 4) % 4)
+        return base64.urlsafe_b64decode((text + pad).encode("ascii"))
+
+    @classmethod
+    def generate_jwt(cls, user, ttl_seconds=3 * 86400, now_ts=1795690000):
+        exp_ts = now_ts + int(ttl_seconds)
+        header_b64 = cls._b64url_encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode("utf-8"))
+        payload_b64 = cls._b64url_encode(json.dumps({
+            "sub": user["UserID"],
+            "email": user["Email"],
+            "role": user["Role"],
+            "iat": now_ts,
+            "exp": exp_ts
+        }).encode("utf-8"))
+        sig = hmac.new(cls.SECRET, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        token = f"{header_b64}.{payload_b64}.{cls._b64url_encode(sig)}"
+        return {"token": token, "expiresAt": exp_ts * 1000}
+
+    @classmethod
+    def verify_jwt(cls, token, now_ts=1795690000):
+        if not token or token.count(".") != 2:
+            return None
+        header_b64, payload_b64, sig_b64 = token.split(".")
+        expected_sig = cls._b64url_encode(
+            hmac.new(cls.SECRET, f"{header_b64}.{payload_b64}".encode("ascii"), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(expected_sig, sig_b64):
+            return None
+        payload = json.loads(cls._b64url_decode(payload_b64).decode("utf-8"))
+        if int(payload.get("exp", 0)) <= now_ts:
+            return None
+        return payload
+
+    @staticmethod
+    def verify_login(users, email, password):
+        user = next((u for u in users if u["Email"].lower() == email.lower() and u.get("Status") == "ACTIVE"), None)
+        if not user:
+            return {"success": False, "message": "Email không tồn tại hoặc đã bị khóa"}
+        stored = user.get("Password", "123456")
+        if password != stored:
+            return {"success": False, "message": "Mật khẩu không chính xác"}
+        return {"success": True, "user": user}
+
+    @staticmethod
+    def change_password(users, user_id, old_pass, new_pass):
+        user = next((u for u in users if u["UserID"] == user_id and u.get("Status") == "ACTIVE"), None)
+        if not user:
+            return {"success": False, "message": "Người dùng không tồn tại"}
+        stored = user.get("Password", "123456")
+        if old_pass != stored:
+            return {"success": False, "message": "Mật khẩu cũ không chính xác"}
+        if len(new_pass) < 6:
+            return {"success": False, "message": "Mật khẩu mới phải có tối thiểu 6 ký tự"}
+        user["Password"] = new_pass
+        return {"success": True, "message": "Đổi mật khẩu thành công"}
 
 if __name__ == "__main__":
     unittest.main()

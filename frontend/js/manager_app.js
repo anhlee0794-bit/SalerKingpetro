@@ -36,7 +36,8 @@ const ManagerApp = {
       { id: "approvals", label: "Phê Duyệt Thay Đổi", icon: "file-check" },
       { id: "products", label: "Quản Lý Hàng Hóa", icon: "package" },
       { id: "reports", label: "Báo Cáo & Thống Kê", icon: "bar-chart-3" },
-      { id: "users", label: "Quản Lý Nhân Sự & Tuyến", icon: "shield-check" }
+      { id: "users", label: "Nhân Sự & Phân Tuyến", icon: "shield-check" },
+      { id: "settings", label: "Cài Đặt Hệ Thống", icon: "settings" }
     ];
 
     const accessibleTabs = allTabs.filter(t => {
@@ -92,6 +93,8 @@ const ManagerApp = {
       await this.renderReportsTab();
     } else if (tabName === "users") {
       await this.renderUsersTab();
+    } else if (tabName === "settings") {
+      await this.renderSettingsTab();
     }
   },
 
@@ -329,6 +332,47 @@ const ManagerApp = {
     }, 100);
   },
 
+  attachFreeMapBaseLayers(map) {
+    const osmStandard = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    });
+
+    const osmHot = L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
+      attribution: '&copy; OpenStreetMap contributors, HOT',
+      subdomains: "abc",
+      maxZoom: 19
+    });
+
+    const esriStreet = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "Tiles &copy; Esri",
+      maxZoom: 19
+    });
+
+    const esriSatellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "Imagery &copy; Esri",
+      maxZoom: 19
+    });
+
+    // Tự động chuyển sang Esri Street nếu mạng chặn OSM trực tiếp (như khi chạy localhost không HTTPS)
+    let switchedFallback = false;
+    osmStandard.on("tileerror", () => {
+      if (!switchedFallback && map.hasLayer(osmStandard)) {
+        switchedFallback = true;
+        map.removeLayer(osmStandard);
+        esriStreet.addTo(map);
+      }
+    });
+
+    osmStandard.addTo(map);
+    L.control.layers({
+      "🗺️ Đường phố Việt Nam (OSM)": osmStandard,
+      "🌤️ Giao diện Sáng (HOT)": osmHot,
+      "🧭 Bản đồ Esri Street": esriStreet,
+      "🛰️ Ảnh Vệ Tinh Thực Tế": esriSatellite
+    }, null, { position: "topright" }).addTo(map);
+  },
+
   initLeafletMap() {
     const mapEl = document.getElementById("leaflet-map-canvas");
     if (!mapEl) return;
@@ -340,12 +384,7 @@ const ManagerApp = {
 
     // Default center on Ho Chi Minh City
     this.mapInstance = L.map("leaflet-map-canvas").setView([10.7760, 106.6950], 13);
-
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(this.mapInstance);
+    this.attachFreeMapBaseLayers(this.mapInstance);
 
     this.refreshMapData();
   },
@@ -757,6 +796,9 @@ const ManagerApp = {
                 <button class="btn-action-inline btn-edit" onclick="ManagerApp.showEditCustomerModal('${c.CustomerID}')" title="Chỉnh sửa">
                   ${Icons.render('pencil', { size: 13 })} Sửa
                 </button>
+                <button class="btn-action-inline" onclick="ManagerApp.handleDeleteCustomer('${c.CustomerID}')" title="Xóa khách hàng" style="color: #b91c1c; border-color: #fecaca; background: #fef2f2;">
+                  🗑️ Xóa
+                </button>
                 ${c.Status === 'PENDING_APPROVAL' ? `
                   <button class="btn-action-inline btn-approve" onclick="ManagerApp.handleApproveCustomer('${c.CustomerID}', true)" title="Duyệt khách hàng">
                     ${Icons.render('check', { size: 13 })} Duyệt
@@ -848,11 +890,7 @@ const ManagerApp = {
     }
 
     this.customerMapInstance = L.map("customer-map-canvas").setView([10.7760, 106.6950], 13);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(this.customerMapInstance);
+    this.attachFreeMapBaseLayers(this.customerMapInstance);
 
     const bounds = [];
     customers.forEach(c => {
@@ -927,23 +965,47 @@ const ManagerApp = {
       </div>
 
       <div class="form-group">
-        <label class="form-label">Địa Chỉ Khách Hàng (*)</label>
-        <input type="text" id="cust-address" class="form-control" placeholder="128 Nguyễn Trãi, Q.1, TP.HCM" />
-      </div>
-
-      <div style="background: var(--bg-subtle); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <label class="form-label" style="margin-bottom: 0;">Tọa Độ GPS Vị Trí (*)</label>
-          <button type="button" class="btn-gps-detect" onclick="ManagerApp.autoDetectGpsForForm()">
-            ${Icons.render('crosshair', { size: 14 })} Lấy GPS Hiện Tại
+        <label class="form-label">Địa Chỉ Khách Hàng (*) — Gõ địa chỉ rồi bấm "Tìm tọa độ"</label>
+        <div style="display: flex; gap: 0.5rem;">
+          <input
+            type="text"
+            id="cust-address"
+            class="form-control"
+            style="flex: 1;"
+            placeholder="VD: 128 Nguyễn Trãi, Quận 1, TP.HCM"
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); GeoService.searchAddressForPicker({addressInputId:'cust-address',latInputId:'cust-lat',lngInputId:'cust-lng',resultsBoxId:'cust-geo-results'});}"
+          />
+          <button
+            type="button"
+            class="btn-action-inline"
+            style="background: #0284c7; color: #fff; border: none; padding: 0.5rem 0.85rem; font-weight: 700; white-space: nowrap; border-radius: 6px; cursor: pointer;"
+            onclick="GeoService.searchAddressForPicker({addressInputId:'cust-address',latInputId:'cust-lat',lngInputId:'cust-lng',resultsBoxId:'cust-geo-results'})"
+          >
+            🔍 Tìm tọa độ
           </button>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-          <input type="number" step="any" id="cust-lat" class="form-control" placeholder="Latitude (Vĩ độ)" value="10.7760" />
-          <input type="number" step="any" id="cust-lng" class="form-control" placeholder="Longitude (Kinh độ)" value="106.6950" />
+        <div id="cust-geo-results" style="display: none; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 0.4rem; max-height: 165px; overflow-y: auto;"></div>
+      </div>
+
+      <div style="background: var(--bg-subtle); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
+          <label class="form-label" style="margin-bottom: 0;">📍 Chọn / Kéo Thả Ghim Trên Bản Đồ (*)</label>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" class="btn-action-inline" style="padding: 0.28rem 0.6rem; font-size: 0.75rem;" onclick="GeoService.fillAddressFromPin('cust-address','cust-lat','cust-lng')" title="Tự động điền tên đường từ vị trí ghim hiện tại">
+              📝 Lấy địa chỉ từ ghim
+            </button>
+            <button type="button" class="btn-gps-detect" onclick="ManagerApp.autoDetectGpsForForm()">
+              ${Icons.render('crosshair', { size: 14 })} Lấy GPS Hiện Tại
+            </button>
+          </div>
         </div>
-        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-          Tọa độ chuẩn được dùng để đối soát bán kính Check-in khi Sales ghé thăm.
+        <div id="cust-add-minimap" style="width: 100%; height: 220px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 0.6rem; z-index: 1;"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <input type="number" step="any" id="cust-lat" class="form-control" placeholder="Latitude (Vĩ độ)" value="10.776000" />
+          <input type="number" step="any" id="cust-lng" class="form-control" placeholder="Longitude (Kinh độ)" value="106.695000" />
+        </div>
+        <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 4px;">
+          💡 Mẹo: Bấm trực tiếp lên bản đồ hoặc nắm kéo ghim xanh đặt đúng nóc cửa hàng (có thể bật lớp <strong>🛰️ Vệ tinh</strong> góc phải bản đồ).
         </div>
       </div>
 
@@ -1002,6 +1064,14 @@ const ManagerApp = {
     `;
 
     UI.showModal(content);
+    GeoService.initMiniMapPicker({
+      containerId: "cust-add-minimap",
+      latInputId: "cust-lat",
+      lngInputId: "cust-lng",
+      addressInputId: "cust-address",
+      initialLat: 10.7760,
+      initialLng: 106.6950
+    });
 
     document.getElementById("btn-save-customer").onclick = async () => {
       const data = {
@@ -1069,20 +1139,47 @@ const ManagerApp = {
       </div>
 
       <div class="form-group">
-        <label class="form-label">Địa Chỉ Khách Hàng (*)</label>
-        <input type="text" id="cust-address-edit" class="form-control" value="${cust.Address || ''}" />
-      </div>
-
-      <div style="background: var(--bg-subtle); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <label class="form-label" style="margin-bottom: 0;">Tọa Độ GPS Vị Trí (*)</label>
-          <button type="button" class="btn-gps-detect" onclick="ManagerApp.autoDetectGpsForEditForm()">
-            ${Icons.render('crosshair', { size: 14 })} Lấy GPS Hiện Tại
+        <label class="form-label">Địa Chỉ Khách Hàng (*) — Gõ địa chỉ rồi bấm "Tìm tọa độ"</label>
+        <div style="display: flex; gap: 0.5rem;">
+          <input
+            type="text"
+            id="cust-address-edit"
+            class="form-control"
+            style="flex: 1;"
+            value="${cust.Address || ''}"
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); GeoService.searchAddressForPicker({addressInputId:'cust-address-edit',latInputId:'cust-lat-edit',lngInputId:'cust-lng-edit',resultsBoxId:'cust-edit-geo-results'});}"
+          />
+          <button
+            type="button"
+            class="btn-action-inline"
+            style="background: #0284c7; color: #fff; border: none; padding: 0.5rem 0.85rem; font-weight: 700; white-space: nowrap; border-radius: 6px; cursor: pointer;"
+            onclick="GeoService.searchAddressForPicker({addressInputId:'cust-address-edit',latInputId:'cust-lat-edit',lngInputId:'cust-lng-edit',resultsBoxId:'cust-edit-geo-results'})"
+          >
+            🔍 Tìm tọa độ
           </button>
         </div>
+        <div id="cust-edit-geo-results" style="display: none; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 0.4rem; max-height: 165px; overflow-y: auto;"></div>
+      </div>
+
+      <div style="background: var(--bg-subtle); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
+          <label class="form-label" style="margin-bottom: 0;">📍 Chọn / Kéo Thả Ghim Trên Bản Đồ (*)</label>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" class="btn-action-inline" style="padding: 0.28rem 0.6rem; font-size: 0.75rem;" onclick="GeoService.fillAddressFromPin('cust-address-edit','cust-lat-edit','cust-lng-edit')" title="Tự động điền tên đường từ vị trí ghim hiện tại">
+              📝 Lấy địa chỉ từ ghim
+            </button>
+            <button type="button" class="btn-gps-detect" onclick="ManagerApp.autoDetectGpsForEditForm()">
+              ${Icons.render('crosshair', { size: 14 })} Lấy GPS Hiện Tại
+            </button>
+          </div>
+        </div>
+        <div id="cust-edit-minimap" style="width: 100%; height: 220px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 0.6rem; z-index: 1;"></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-          <input type="number" step="any" id="cust-lat-edit" class="form-control" value="${cust.Latitude || 0}" />
-          <input type="number" step="any" id="cust-lng-edit" class="form-control" value="${cust.Longitude || 0}" />
+          <input type="number" step="any" id="cust-lat-edit" class="form-control" value="${cust.Latitude || 10.776000}" />
+          <input type="number" step="any" id="cust-lng-edit" class="form-control" value="${cust.Longitude || 106.695000}" />
+        </div>
+        <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 4px;">
+          💡 Kéo thả ghim hoặc bấm trên bản đồ để tinh chỉnh đúng vị trí cửa hàng.
         </div>
       </div>
 
@@ -1135,12 +1232,25 @@ const ManagerApp = {
         <textarea id="cust-note-edit" class="form-control" rows="2">${cust.Note || ''}</textarea>
       </div>
 
-      <button id="btn-update-customer" class="btn-action-large btn-meet-customer" style="margin-top: 1rem;">
-        CẬP NHẬT THÔNG TIN
-      </button>
+      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <button type="button" onclick="ManagerApp.handleDeleteCustomer('${cust.CustomerID}')" class="btn-action-inline" style="padding: 0.75rem 1rem; color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; font-weight: 700;">
+          🗑️ Xóa Đại Lý
+        </button>
+        <button id="btn-update-customer" class="btn-action-large btn-meet-customer" style="flex: 1;">
+          CẬP NHẬT THÔNG TIN
+        </button>
+      </div>
     `;
 
     UI.showModal(content);
+    GeoService.initMiniMapPicker({
+      containerId: "cust-edit-minimap",
+      latInputId: "cust-lat-edit",
+      lngInputId: "cust-lng-edit",
+      addressInputId: "cust-address-edit",
+      initialLat: Number(cust.Latitude) || 10.7760,
+      initialLng: Number(cust.Longitude) || 106.6950
+    });
 
     document.getElementById("btn-update-customer").onclick = async () => {
       const data = {
@@ -1165,12 +1275,34 @@ const ManagerApp = {
 
       if (updateRes && updateRes.success) {
         UI.closeModal();
-        UI.showToast("Đã cập nhật thông tin khách hàng!", "success");
+        UI.showToast(updateRes.message || "Đã cập nhật thông tin khách hàng!", "success");
         this.renderCustomersTab();
       } else {
-        UI.showToast(updateRes.message || "Lỗi cập nhật", "error");
+        UI.showToast(updateRes.message || "Lỗi cập nhật", "danger");
       }
     };
+  },
+
+  async handleDeleteCustomer(customerId) {
+    const res = await ApiService.getCustomers(null, "MANAGER");
+    const cust = (res && res.customers) ? res.customers.find(c => c.CustomerID === customerId) : null;
+    const label = cust ? `${cust.CustomerName} (${customerId})` : customerId;
+
+    if (!confirm(`Bạn có chắc chắn muốn XÓA VĨNH VIỄN khách hàng:\n"${label}" khỏi cơ sở dữ liệu không?`)) {
+      return;
+    }
+
+    UI.showLoading("Đang xóa khách hàng khỏi CSDL...");
+    const delRes = await ApiService.deleteCustomer(customerId, (this.currentUser && this.currentUser.Role) || "MANAGER");
+    UI.hideLoading();
+
+    if (delRes && delRes.success) {
+      UI.closeModal();
+      UI.showToast(delRes.message || "Đã xóa khách hàng thành công!", "success");
+      await this.renderCustomersTab();
+    } else {
+      UI.showToast((delRes && delRes.message) || "Không thể xóa khách hàng!", "danger");
+    }
   },
 
   async autoDetectGpsForForm() {
@@ -1178,10 +1310,12 @@ const ManagerApp = {
       const pos = await GeoService.getCurrentPosition();
       document.getElementById("cust-lat").value = pos.lat.toFixed(6);
       document.getElementById("cust-lng").value = pos.lng.toFixed(6);
+      GeoService.setMiniMapPosition(pos.lat, pos.lng, 17);
       UI.showToast(`Đã lấy GPS thành công! Sai số ~${Math.round(pos.accuracy)}m`, "success");
     } catch (e) {
       document.getElementById("cust-lat").value = "10.776000";
       document.getElementById("cust-lng").value = "106.695000";
+      GeoService.setMiniMapPosition(10.7760, 106.6950, 15);
       UI.showToast("Đã dùng tọa độ mặc định (do GPS bị chặn)", "warning");
     }
   },
@@ -1191,6 +1325,7 @@ const ManagerApp = {
       const pos = await GeoService.getCurrentPosition();
       document.getElementById("cust-lat-edit").value = pos.lat.toFixed(6);
       document.getElementById("cust-lng-edit").value = pos.lng.toFixed(6);
+      GeoService.setMiniMapPosition(pos.lat, pos.lng, 17);
       UI.showToast(`Đã lấy GPS thành công! Sai số ~${Math.round(pos.accuracy)}m`, "success");
     } catch (e) {
       UI.showToast("Không thể lấy GPS: " + e.message, "error");
@@ -1590,6 +1725,10 @@ const ManagerApp = {
   // ----------------------------------------------------
   // TAB 6: USERS MANAGEMENT & ROUTE ALLOCATION (ADMIN ONLY)
   // ----------------------------------------------------
+  userSearchQuery: "",
+  userRoleFilter: "ALL",
+  cachedUsersList: [],
+
   async renderUsersTab() {
     const content = document.getElementById("manager-tab-content");
     if (!content) return;
@@ -1598,10 +1737,28 @@ const ManagerApp = {
       return;
     }
 
-    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách nhân sự & phân bổ tuyến...</div>`;
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách nhân sự & phân bổ tuyến từ MySQL...</div>`;
 
-    const usersRes = await ApiService.getUsers("ADMIN");
-    const users = (usersRes && usersRes.users) || (typeof App !== "undefined" ? App.users : []);
+    const usersRes = await ApiService.getUsers("ADMIN", null, true);
+    const rawUsers = (usersRes && Array.isArray(usersRes.users)) ? usersRes.users : (typeof App !== "undefined" ? App.users : []);
+    const users = rawUsers.map(u => ({
+      UserID: u.UserID || u.userId,
+      Name: u.Name || u.name,
+      Email: u.Email || u.email,
+      Role: (u.Role || u.role || "SALES").toUpperCase(),
+      Phone: u.Phone || u.phone || "",
+      Team: u.Team || u.team || "",
+      Status: (u.Status || u.status || "ACTIVE").toUpperCase()
+    }));
+    this.cachedUsersList = users;
+
+    if (typeof App !== "undefined") {
+      App.users = users.filter(u => u.Status === "ACTIVE");
+      if (typeof App.renderRoleSwitcher === "function") {
+        App.renderRoleSwitcher();
+      }
+    }
+
     const custRes = await ApiService.getCustomers(null, "ADMIN");
     const allCustomers = (custRes && custRes.customers) || [];
 
@@ -1612,19 +1769,36 @@ const ManagerApp = {
     const assignedCustCount = allCustomers.filter(c => c.AssignedSalesID && c.AssignedSalesID !== "ALL").length;
     const unassignedCustCount = allCustomers.length - assignedCustCount;
 
-    let rowsHtml = users.map(u => {
+    let filteredUsers = users;
+    if (this.userRoleFilter !== "ALL") {
+      filteredUsers = filteredUsers.filter(u => u.Role === this.userRoleFilter);
+    }
+    if (this.userSearchQuery.trim()) {
+      const q = this.userSearchQuery.toLowerCase().trim();
+      filteredUsers = filteredUsers.filter(u =>
+        (u.Name && u.Name.toLowerCase().includes(q)) ||
+        (u.Email && u.Email.toLowerCase().includes(q)) ||
+        (u.Phone && u.Phone.toLowerCase().includes(q)) ||
+        (u.UserID && u.UserID.toLowerCase().includes(q)) ||
+        (u.Team && u.Team.toLowerCase().includes(q))
+      );
+    }
+
+    let rowsHtml = filteredUsers.map(u => {
       const assignedCustomers = allCustomers.filter(c => c.AssignedSalesID === u.UserID);
       const roleMeta = typeof PermissionService !== "undefined" ? PermissionService.getMeta(u.Role) : { badgeClass: "role-pill", icon: "user", color: "#64748b", bg: "#f1f5f9" };
+      const isActive = u.Status !== "INACTIVE";
+      const isRootSelf = typeof App !== "undefined" && App.authSession && App.authSession.rootUser && App.authSession.rootUser.UserID === u.UserID;
 
       return `
-        <tr>
+        <tr style="${!isActive ? 'opacity: 0.65; background: var(--bg-subtle);' : ''}">
           <td>
             <div style="display: flex; align-items: center; gap: 0.6rem;">
               <div style="width: 34px; height: 34px; border-radius: 50%; background: ${roleMeta.bg}; color: ${roleMeta.color}; display: flex; align-items: center; justify-content: center; font-weight: 700;">
-                ${u.Name ? u.Name.charAt(0) : 'U'}
+                ${u.Name ? u.Name.charAt(0).toUpperCase() : 'U'}
               </div>
               <div>
-                <strong style="font-size: 0.95rem; color: var(--text-main);">${u.Name}</strong>
+                <strong style="font-size: 0.95rem; color: var(--text-main);">${u.Name} ${isRootSelf ? '<span style="font-size:0.7rem;color:#7e22ce;">(Bạn)</span>' : ''}</strong>
                 <div style="font-size: 0.78rem; color: var(--text-muted);">${u.UserID} • ${u.Email}</div>
               </div>
             </div>
@@ -1650,18 +1824,29 @@ const ManagerApp = {
             `}
           </td>
           <td>
-            <span class="status-badge ${u.Status === 'ACTIVE' || !u.Status ? 'badge-working' : 'badge-completed'}" style="font-size: 0.72rem;">
-              ${u.Status || 'ACTIVE'}
+            <span class="status-badge ${isActive ? 'badge-working' : 'badge-completed'}" style="font-size: 0.72rem; ${!isActive ? 'background:#fee2e2;color:#b91c1c;' : ''}">
+              ${isActive ? 'Đang hoạt động' : 'Đã khóa'}
             </span>
           </td>
           <td>
-            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-              <button class="btn-action-inline" onclick="App.onUserSelectChange('${u.UserID}')" title="Chuyển ngay sang tài khoản này để kiểm tra" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
-                ${Icons.render('user-check', { size: 13 })} Đăng nhập thử
+            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+              <button class="btn-action-inline btn-edit" onclick="ManagerApp.showEditUserModal('${u.UserID}')" title="Sửa tên, SĐT, email, vai trò, đội nhóm" style="padding: 0.32rem 0.55rem; font-size: 0.76rem;">
+                ${Icons.render('pencil', { size: 12 })} Sửa
+              </button>
+              <button class="btn-action-inline" onclick="ManagerApp.showResetUserPasswordModal('${u.UserID}')" title="Đặt lại mật khẩu mới cho tài khoản này" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: #0369a1; background: #f0f9ff; border-color: #bae6fd;">
+                🔑 Đổi Pass
               </button>
               ${u.Role === 'SALES' ? `
-                <button class="btn-action-inline btn-edit" onclick="ManagerApp.showReassignRouteModal('${u.UserID}')" title="Gán hoặc phân bổ lại tuyến khách hàng" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
-                  ${Icons.render('map-pin', { size: 13 })} Phân tuyến
+                <button class="btn-action-inline" onclick="ManagerApp.showReassignRouteModal('${u.UserID}')" title="Gán hoặc phân bổ lại tuyến khách hàng" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: #047857; background: #ecfdf5; border-color: #a7f3d0;">
+                  ${Icons.render('map-pin', { size: 12 })} Phân tuyến
+                </button>
+              ` : ''}
+              ${!isRootSelf ? `
+                <button class="btn-action-inline" onclick="ManagerApp.handleToggleUserStatus('${u.UserID}')" title="${isActive ? 'Tạm khóa tài khoản (chặn đăng nhập)' : 'Mở khóa tài khoản'}" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: ${isActive ? '#b45309' : '#047857'}; background: ${isActive ? '#fef3c7' : '#d1fae5'}; border-color: ${isActive ? '#fde68a' : '#a7f3d0'};">
+                  ${isActive ? '🔒 Khóa' : '🔓 Mở'}
+                </button>
+                <button class="btn-action-inline" onclick="ManagerApp.handleDeleteUser('${u.UserID}')" title="Xóa tài khoản nhân sự" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: #b91c1c; background: #fee2e2; border-color: #fecaca;">
+                  🗑️ Xóa
                 </button>
               ` : ''}
             </div>
@@ -1674,19 +1859,19 @@ const ManagerApp = {
       <div class="manager-sub-header" style="margin-bottom: 1.25rem;">
         <div>
           <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-            ${Icons.render('shield-check', { size: 22, color: '#7e22ce' })} Quản Lý Danh Sách Nhân Sự & Phân Bổ Tuyến
+            ${Icons.render('shield-check', { size: 22, color: '#7e22ce' })} Quản Trị Nhân Sự (Quản Lý, Sales, Admin) & Tuyến Bán
           </h2>
           <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
-            Đặc quyền ADMIN: Quản lý phân quyền tài khoản (RBAC), tạo nhân sự mới và phân bổ tuyến đường cho Sales.
+            Thêm mới, chỉnh sửa hồ sơ Quản lý / Nhân viên, đặt lại mật khẩu, khóa/xóa tài khoản và phân bổ tuyến bán hàng trực tiếp trên MySQL.
           </div>
         </div>
-        <button class="btn-action-inline" onclick="ManagerApp.showAddUserModal()" style="background: var(--primary); color: white; border: none; padding: 0.6rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+        <button class="btn-action-inline" onclick="ManagerApp.showAddUserModal()" style="background: var(--primary); color: white; border: none; padding: 0.6rem 1.1rem; border-radius: 6px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
           ${Icons.render('user-plus', { size: 16 })} + Thêm Nhân Sự Mới
         </button>
       </div>
 
       <!-- KPI Summary Cards -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
         <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; border-radius: 8px;">
           <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">TỔNG NHÂN SỰ</div>
           <div style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 4px;">${totalUsers}</div>
@@ -1712,22 +1897,43 @@ const ManagerApp = {
         </div>
       </div>
 
+      <!-- Filter & Search Toolbar -->
+      <div style="background: var(--bg-card); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 1rem; display: flex; gap: 0.85rem; flex-wrap: wrap; align-items: center;">
+        <div style="flex: 1; min-width: 240px;">
+          <input
+            type="text"
+            placeholder="🔍 Tìm nhân sự theo tên, email, SĐT, mã hoặc đội nhóm..."
+            value="${this.userSearchQuery}"
+            oninput="ManagerApp.userSearchQuery = this.value; ManagerApp.renderUsersTab();"
+            class="form-control"
+          />
+        </div>
+        <div style="min-width: 200px;">
+          <select class="form-control" onchange="ManagerApp.userRoleFilter = this.value; ManagerApp.renderUsersTab();">
+            <option value="ALL" ${this.userRoleFilter === 'ALL' ? 'selected' : ''}>Tất cả vai trò (${totalUsers})</option>
+            <option value="ADMIN" ${this.userRoleFilter === 'ADMIN' ? 'selected' : ''}>ADMIN (${adminCount})</option>
+            <option value="MANAGER" ${this.userRoleFilter === 'MANAGER' ? 'selected' : ''}>MANAGER - Quản lý (${managerCount})</option>
+            <option value="SALES" ${this.userRoleFilter === 'SALES' ? 'selected' : ''}>SALES - Nhân viên (${salesCount})</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Users Table -->
       <div class="table-responsive" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;">
         <table class="custom-table">
           <thead>
             <tr>
               <th>Nhân Sự</th>
-              <th>Vai Trò (Role)</th>
-              <th>Đội Nhóm (Team)</th>
+              <th>Vai Trò</th>
+              <th>Đội Nhóm</th>
               <th>Số Điện Thoại</th>
-              <th>Tuyến Bán Hàng</th>
+              <th>Tuyến Phụ Trách</th>
               <th>Trạng Thái</th>
-              <th>Hành Động</th>
+              <th>Thao Tác Quản Trị</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml}
+            ${rowsHtml || `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">Không tìm thấy nhân sự phù hợp</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1735,94 +1941,234 @@ const ManagerApp = {
   },
 
   showAddUserModal() {
+    this.showUserFormModal(null);
+  },
+
+  showEditUserModal(userId) {
+    const user = (this.cachedUsersList || []).find(u => u.UserID === userId);
+    if (!user) return UI.showToast("Không tìm thấy thông tin nhân sự!", "danger");
+    this.showUserFormModal(user);
+  },
+
+  showUserFormModal(user) {
+    const isEdit = !!user;
+    const u = user || {
+      UserID: "",
+      Name: "",
+      Email: "",
+      Phone: "",
+      Role: "SALES",
+      Team: "North Team",
+      Status: "ACTIVE"
+    };
+
     const content = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-        <h3 style="font-weight: 800; font-size: 1.2rem; color: var(--text-main); margin: 0;">+ Thêm Nhân Sự Mới</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+          <h3 style="font-weight: 800; font-size: 1.2rem; color: var(--text-main); margin: 0;">
+            ${isEdit ? `✏️ Chỉnh Sửa Nhân Sự [${u.UserID}]` : '+ Thêm Tài Khoản Nhân Sự Mới'}
+          </h3>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">
+            ${isEdit ? 'Cập nhật họ tên, email, SĐT, vai trò (Quản lý / Sales / Admin) hoặc đội nhóm' : 'Tạo tài khoản mới lưu trực tiếp vào MySQL'}
+          </div>
+        </div>
         <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
       </div>
 
-      <div class="form-group" style="margin-bottom: 0.75rem;">
-        <label class="form-label">Họ và Tên (*)</label>
-        <input type="text" id="new-user-name" class="form-control" placeholder="Ví dụ: Hoàng Văn D" required />
-      </div>
+      <form onsubmit="event.preventDefault(); ManagerApp.saveUserForm('${u.UserID}', ${isEdit});">
+        <div class="form-group" style="margin-bottom: 0.75rem;">
+          <label class="form-label">Họ và Tên (*)</label>
+          <input type="text" id="u-form-name" class="form-control" placeholder="Ví dụ: Nguyễn Văn D" value="${u.Name || ''}" required />
+        </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
-        <div class="form-group">
-          <label class="form-label">Email (*)</label>
-          <input type="email" id="new-user-email" class="form-control" placeholder="sales.d@company.com" required />
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div class="form-group">
+            <label class="form-label">Email đăng nhập (*)</label>
+            <input type="email" id="u-form-email" class="form-control" placeholder="ten@hiepphucduc.vn" value="${u.Email || ''}" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Số Điện Thoại</label>
+            <input type="text" id="u-form-phone" class="form-control" placeholder="0901234567" value="${u.Phone || ''}" />
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Số Điện Thoại</label>
-          <input type="text" id="new-user-phone" class="form-control" placeholder="0901234571" />
-        </div>
-      </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
-        <div class="form-group">
-          <label class="form-label">Vai Trò Phân Quyền (*)</label>
-          <select id="new-user-role" class="form-control">
-            <option value="SALES" selected>SALES (Nhân viên thị trường)</option>
-            <option value="MANAGER">MANAGER (Quản lý vùng)</option>
-            <option value="ADMIN">ADMIN (Quản trị viên hệ thống)</option>
-          </select>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div class="form-group">
+            <label class="form-label">Vai Trò Phân Quyền (*)</label>
+            <select id="u-form-role" class="form-control">
+              <option value="SALES" ${u.Role === 'SALES' ? 'selected' : ''}>SALES (Nhân viên thị trường)</option>
+              <option value="MANAGER" ${u.Role === 'MANAGER' ? 'selected' : ''}>MANAGER (Quản lý vùng)</option>
+              <option value="ADMIN" ${u.Role === 'ADMIN' ? 'selected' : ''}>ADMIN (Quản trị toàn hệ thống)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Đội Nhóm / Khu Vực (Team)</label>
+            <input type="text" id="u-form-team" class="form-control" placeholder="VD: Tuyến TP.HCM / Miền Đông" value="${u.Team || ''}" />
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Đội Nhóm (Team)</label>
-          <input type="text" id="new-user-team" class="form-control" placeholder="North Team / South Team" value="North Team" />
-        </div>
-      </div>
 
-      <button class="btn-action-large btn-meet-customer" style="width: 100%;" onclick="ManagerApp.saveNewUser()">
-        LƯU NHÂN SỰ
-      </button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+          <div class="form-group">
+            <label class="form-label">${isEdit ? 'Đặt mật khẩu mới (Để trống nếu giữ nguyên)' : 'Mật khẩu khởi tạo (*)'}</label>
+            <input type="password" id="u-form-password" class="form-control" placeholder="${isEdit ? 'Nhập nếu muốn đổi mật khẩu...' : 'Tối thiểu 6 ký tự'}" value="${isEdit ? '' : '123456'}" ${isEdit ? '' : 'minlength="6" required'} />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Trạng Thái Tài Khoản</label>
+            <select id="u-form-status" class="form-control">
+              <option value="ACTIVE" ${u.Status !== 'INACTIVE' ? 'selected' : ''}>Đang hoạt động (ACTIVE)</option>
+              <option value="INACTIVE" ${u.Status === 'INACTIVE' ? 'selected' : ''}>Tạm khóa (INACTIVE)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.85rem;">
+          <button type="button" class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.55rem 1.1rem;">Hủy</button>
+          <button type="submit" class="btn-action-large btn-meet-customer" style="padding: 0.55rem 1.4rem;">
+            ${isEdit ? 'LƯU CẬP NHẬT' : 'TẠO TÀI KHOẢN'}
+          </button>
+        </div>
+      </form>
     `;
 
     UI.showModal(content);
   },
 
-  async saveNewUser() {
-    const name = (document.getElementById("new-user-name")?.value || "").trim();
-    const email = (document.getElementById("new-user-email")?.value || "").trim();
-    const phone = (document.getElementById("new-user-phone")?.value || "").trim();
-    const role = document.getElementById("new-user-role")?.value || "SALES";
-    const team = (document.getElementById("new-user-team")?.value || "North Team").trim();
+  async saveUserForm(userId, isEdit) {
+    const name = (document.getElementById("u-form-name")?.value || "").trim();
+    const email = (document.getElementById("u-form-email")?.value || "").trim();
+    const phone = (document.getElementById("u-form-phone")?.value || "").trim();
+    const role = document.getElementById("u-form-role")?.value || "SALES";
+    const team = (document.getElementById("u-form-team")?.value || "").trim();
+    const password = (document.getElementById("u-form-password")?.value || "").trim();
+    const status = document.getElementById("u-form-status")?.value || "ACTIVE";
 
     if (!name || !email) {
-      return UI.showToast("Vui lòng nhập tên và email nhân sự!", "danger");
+      return UI.showToast("Vui lòng nhập đầy đủ Họ tên và Email!", "danger");
+    }
+    if (password && password.length < 6) {
+      return UI.showToast("Mật khẩu phải có tối thiểu 6 ký tự!", "danger");
     }
 
-    const newUser = {
-      UserID: "USR-" + String(Date.now()).substring(8),
+    UI.showLoading(isEdit ? "Đang lưu cập nhật nhân sự..." : "Đang tạo tài khoản nhân sự mới...");
+    const res = await ApiService.saveUser({
+      UserID: isEdit ? userId : "",
       Name: name,
       Email: email,
       Phone: phone,
       Role: role,
       Team: team,
-      Status: "ACTIVE"
-    };
+      Password: password,
+      Status: status
+    });
+    UI.hideLoading();
 
-    if (typeof App !== "undefined" && App.users) {
-      App.users.push(newUser);
-    }
-
-    if (typeof MockDatabase !== "undefined") {
-      const db = MockDatabase.getDB();
-      if (db.USERS) {
-        db.USERS.push(newUser);
-        MockDatabase.saveDB(db);
+    if (res && res.success) {
+      UI.closeModal();
+      // Nếu Admin sửa thông tin chính mình, cập nhật ngay lên Header
+      if (typeof App !== "undefined" && App.currentUser && App.currentUser.UserID === userId && res.user) {
+        const norm = App.normalizeUser(res.user);
+        App.currentUser = norm;
+        if (App.authSession && App.authSession.rootUser && App.authSession.rootUser.UserID === userId) {
+          App.authSession.rootUser = norm;
+          App.authSession.user = norm;
+          localStorage.setItem(App.AUTH_SESSION_KEY, JSON.stringify(App.authSession));
+        }
+        const nameEl = document.getElementById("current-user-name");
+        if (nameEl) nameEl.innerText = norm.Name;
       }
+      UI.showToast(res.message || "Đã lưu thông tin nhân sự thành công!", "success");
+      await this.renderUsersTab();
+    } else {
+      UI.showToast((res && res.message) || "Không thể lưu thông tin nhân sự!", "danger");
     }
+  },
 
-    UI.closeModal();
-    UI.showToast(`Đã thêm nhân sự ${name} (${role}) thành công!`, "success");
-    if (typeof App !== "undefined" && typeof App.renderRoleSwitcher === "function") {
-      App.renderRoleSwitcher();
+  showResetUserPasswordModal(userId) {
+    const user = (this.cachedUsersList || []).find(u => u.UserID === userId);
+    if (!user) return UI.showToast("Không tìm thấy nhân sự!", "danger");
+
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+          <h3 style="font-weight: 800; font-size: 1.15rem; color: var(--text-main); margin: 0;">🔑 Cấp Lại Mật Khẩu Nhân Sự</h3>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">${user.Name} (${user.Email} • ${user.Role})</div>
+        </div>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <form onsubmit="event.preventDefault(); ManagerApp.handleResetUserPassword('${user.UserID}');">
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label">Mật khẩu mới cần đặt (*)</label>
+          <input type="text" id="reset-user-new-pass" class="form-control" placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)" value="123456" minlength="6" required />
+          <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 0.35rem;">
+            Mật khẩu sẽ được băm chuẩn Bcrypt bảo mật ngay khi lưu vào MySQL.
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.5rem 1rem;">Hủy</button>
+          <button type="submit" class="btn-action-large btn-meet-customer" style="padding: 0.5rem 1.25rem;">
+            XÁC NHẬN ĐẶT LẠI MẬT KHẨU
+          </button>
+        </div>
+      </form>
+    `;
+    UI.showModal(content);
+  },
+
+  async handleResetUserPassword(userId) {
+    const newPass = (document.getElementById("reset-user-new-pass")?.value || "").trim();
+    if (newPass.length < 6) {
+      return UI.showToast("Mật khẩu mới phải có ít nhất 6 ký tự!", "danger");
     }
-    this.renderUsersTab();
+    UI.showLoading("Đang cập nhật mật khẩu mới...");
+    const res = await ApiService.resetUserPassword(userId, newPass);
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.closeModal();
+      UI.showToast(res.message || "Đã đặt lại mật khẩu thành công!", "success");
+    } else {
+      UI.showToast((res && res.message) || "Lỗi đặt lại mật khẩu!", "danger");
+    }
+  },
+
+  async handleToggleUserStatus(userId) {
+    const user = (this.cachedUsersList || []).find(u => u.UserID === userId);
+    if (!user) return;
+    const isLocking = user.Status !== "INACTIVE";
+    if (!confirm(`Bạn có muốn ${isLocking ? 'TẠM KHÓA' : 'MỞ KHÓA'} tài khoản của "${user.Name}" (${user.Role}) không?`)) {
+      return;
+    }
+    UI.showLoading("Đang cập nhật trạng thái tài khoản...");
+    const res = await ApiService.toggleUserStatus(userId);
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.showToast(res.message, "success");
+      await this.renderUsersTab();
+    } else {
+      UI.showToast((res && res.message) || "Không thể đổi trạng thái tài khoản!", "danger");
+    }
+  },
+
+  async handleDeleteUser(userId) {
+    const user = (this.cachedUsersList || []).find(u => u.UserID === userId);
+    const label = user ? `${user.Name} (${user.Email} - ${user.Role})` : userId;
+    if (!confirm(`Bạn có chắc chắn muốn XÓA VĨNH VIỄN nhân sự:\n"${label}"?\n\nLưu ý: Các điểm bán đang gán cho nhân sự này sẽ được chuyển về trạng thái Chưa phân tuyến.`)) {
+      return;
+    }
+    UI.showLoading("Đang xóa nhân sự khỏi CSDL...");
+    const res = await ApiService.deleteUser(userId);
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.showToast(res.message || "Đã xóa nhân sự thành công!", "success");
+      await this.renderUsersTab();
+    } else {
+      UI.showToast((res && res.message) || "Không thể xóa nhân sự!", "danger");
+    }
   },
 
   async showReassignRouteModal(salesId) {
-    const targetUser = (typeof App !== "undefined" && App.users) ? App.users.find(u => u.UserID === salesId) : null;
+    const targetUser = (this.cachedUsersList || []).find(u => u.UserID === salesId) ||
+                       ((typeof App !== "undefined" && App.users) ? App.users.find(u => u.UserID === salesId) : null);
     if (!targetUser) return UI.showToast("Không tìm thấy nhân sự", "danger");
 
     UI.showLoading("Đang tải danh sách điểm bán...");
@@ -1844,13 +2190,15 @@ const ManagerApp = {
       </div>
 
       <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-        Chọn các điểm bán khách hàng để giao cho <strong>${targetUser.Name}</strong> phụ trách:
+        Tích chọn các đại lý / khách hàng giao cho <strong>${targetUser.Name}</strong> phụ trách:
       </div>
 
       <div style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; background: var(--bg-subtle);">
         ${allCustomers.map(c => {
           const isAssigned = c.AssignedSalesID === salesId;
-          const assignedOther = c.AssignedSalesID && c.AssignedSalesID !== salesId && typeof App !== "undefined" ? App.users.find(u => u.UserID === c.AssignedSalesID) : null;
+          const assignedOther = c.AssignedSalesID && c.AssignedSalesID !== salesId
+            ? (this.cachedUsersList || []).find(u => u.UserID === c.AssignedSalesID)
+            : null;
           return `
             <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; background: var(--bg-card); border-radius: 6px; cursor: pointer; border: 1px solid var(--border);">
               <input type="checkbox" class="cust-route-checkbox" value="${c.CustomerID}" ${isAssigned ? 'checked' : ''} style="width: 17px; height: 17px;" />
@@ -1858,7 +2206,7 @@ const ManagerApp = {
                 <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">${c.CustomerName}</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted);">
                   ${c.Address} • Loại: <strong>${c.CustomerType || 'NORMAL'}</strong>
-                  ${assignedOther ? `<span style="color: #b45309; margin-left: 0.5rem;">(Hiện đang gán: ${assignedOther.Name})</span>` : ''}
+                  ${assignedOther ? `<span style="color: #b45309; margin-left: 0.5rem;">(Đang gán: ${assignedOther.Name})</span>` : ''}
                 </div>
               </div>
             </label>
@@ -1869,7 +2217,7 @@ const ManagerApp = {
       <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
         <button class="btn-action-inline" onclick="UI.closeModal()" style="padding: 0.5rem 1rem;">Hủy</button>
         <button class="btn-action-large btn-meet-customer" onclick="ManagerApp.saveReassignedRoutes('${salesId}')" style="padding: 0.5rem 1.25rem;">
-          LƯU PHÂN TUYẾN
+          LƯU PHÂN TUYẾN VÀO MYSQL
         </button>
       </div>
     `;
@@ -1879,30 +2227,22 @@ const ManagerApp = {
 
   async saveReassignedRoutes(salesId) {
     const checkboxes = document.querySelectorAll(".cust-route-checkbox");
-    const selectedIds = new Set();
+    const customerIds = [];
     checkboxes.forEach(cb => {
-      if (cb.checked) selectedIds.add(cb.value);
+      if (cb.checked) customerIds.push(cb.value);
     });
 
-    UI.showLoading("Đang cập nhật phân bổ tuyến...");
-    if (typeof MockDatabase !== "undefined") {
-      const db = MockDatabase.getDB();
-      if (db.CUSTOMERS) {
-        db.CUSTOMERS.forEach(c => {
-          if (selectedIds.has(c.CustomerID)) {
-            c.AssignedSalesID = salesId;
-          } else if (c.AssignedSalesID === salesId) {
-            c.AssignedSalesID = "";
-          }
-        });
-        MockDatabase.saveDB(db);
-      }
-    }
-
+    UI.showLoading("Đang lưu phân bổ tuyến xuống MySQL...");
+    const res = await ApiService.reassignRoutes(salesId, customerIds);
     UI.hideLoading();
-    UI.closeModal();
-    UI.showToast("Đã cập nhật phân bổ tuyến bán hàng thành công!", "success");
-    this.renderUsersTab();
+
+    if (res && res.success) {
+      UI.closeModal();
+      UI.showToast(res.message || "Đã cập nhật phân bổ tuyến bán hàng thành công!", "success");
+      await this.renderUsersTab();
+    } else {
+      UI.showToast((res && res.message) || "Lỗi cập nhật phân tuyến!", "danger");
+    }
   },
 
   // ----------------------------------------------------
@@ -2160,31 +2500,47 @@ const ManagerApp = {
     content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh mục hàng hóa...</div>`;
 
     const res = await ApiService.getProducts();
-    const products = (res && res.success && res.data) ? res.data : [];
+    const rawList = (res && res.success) ? (res.data || res.products || []) : [];
+    const products = rawList.map(p => ({
+      ProductID: p.ProductID || p.id,
+      ProductName: p.ProductName || p.name,
+      CategoryID: p.CategoryID || p.category || "Khác",
+      CategoryName: p.CategoryName || p.category || "Khác",
+      Unit: p.Unit || p.defaultUnit || "Thùng",
+      Packaging: p.Packaging !== undefined ? p.Packaging : (p.spec || ""),
+      BasePrice: Number(p.BasePrice !== undefined ? p.BasePrice : (p.price || 0)),
+      Status: p.Status || p.status || "ACTIVE"
+    }));
+
+    // Tập hợp tự động danh mục từ dữ liệu thực tế + danh mục chuẩn Kingpetro
+    const defaultCats = [
+      "Dầu Nhờn Xe Máy",
+      "Dầu Động Cơ Ô Tô & Xe Tải",
+      "Dầu Nhờn & Mỡ Bôi Trơn",
+      "Dầu Công Nghiệp & Thủy Lực",
+      "Mỡ Bôi Trơn Chịu Nhiệt",
+      "Phụ Gia & Nước Làm Mát"
+    ];
+    const catSet = new Set(defaultCats);
+    products.forEach(p => {
+      if (p.CategoryName) catSet.add(p.CategoryName);
+    });
+    const categories = [{ id: "ALL", name: "Tất cả danh mục" }, ...Array.from(catSet).map(c => ({ id: c, name: c }))];
 
     // Lọc theo search và category
     let filtered = products;
     if (this.productCategoryFilter !== "ALL") {
-      filtered = filtered.filter(p => p.CategoryID === this.productCategoryFilter);
+      filtered = filtered.filter(p => p.CategoryID === this.productCategoryFilter || p.CategoryName === this.productCategoryFilter);
     }
     if (this.productSearchQuery.trim()) {
       const q = this.productSearchQuery.toLowerCase().trim();
       filtered = filtered.filter(p => 
         (p.ProductName && p.ProductName.toLowerCase().includes(q)) ||
         (p.ProductID && p.ProductID.toLowerCase().includes(q)) ||
-        (p.Packaging && p.Packaging.toLowerCase().includes(q))
+        (p.Packaging && p.Packaging.toLowerCase().includes(q)) ||
+        (p.CategoryName && p.CategoryName.toLowerCase().includes(q))
       );
     }
-
-    // Categories list for filter
-    const categories = [
-      { id: "ALL", name: "Tất cả danh mục" },
-      { id: "DMN_XE_MAY", name: "Dầu Nhờn Xe Máy" },
-      { id: "DMN_OTO", name: "Dầu Động Cơ Ô Tô & Xe Tải" },
-      { id: "DMN_CONG_NGHIEP", name: "Dầu Công Nghiệp & Thủy Lực" },
-      { id: "MO_BO", name: "Mỡ Bôi Trơn Chịu Nhiệt" },
-      { id: "PHU_GIA", name: "Phụ Gia & Nước Làm Mát" }
-    ];
 
     const activeCount = products.filter(p => p.Status === "ACTIVE").length;
     const inactiveCount = products.filter(p => p.Status === "INACTIVE").length;
@@ -2318,6 +2674,14 @@ const ManagerApp = {
                         >
                           ${isActive ? '⛔ Dừng' : '✓ Bán'}
                         </button>
+                        <button 
+                          class="btn-action-inline" 
+                          onclick="ManagerApp.handleDeleteProduct('${p.ProductID}')" 
+                          title="Xóa vĩnh viễn mặt hàng này"
+                          style="padding: 0.35rem 0.6rem; font-size: 0.78rem; color: #b91c1c; border-color: #fecaca; background: #fef2f2;"
+                        >
+                          🗑️ Xóa
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -2336,44 +2700,61 @@ const ManagerApp = {
 
   async showEditProductModal(productId) {
     const res = await ApiService.getProducts();
-    const products = (res && res.success && res.data) ? res.data : [];
-    const product = products.find(p => p.ProductID === productId);
-    if (!product) {
+    const rawList = (res && res.success) ? (res.data || res.products || []) : [];
+    const found = rawList.find(p => (p.ProductID || p.id) === productId);
+    if (!found) {
       UI.showToast("Không tìm thấy sản phẩm!", "danger");
       return;
     }
-    this.showProductFormModal(product);
+    this.showProductFormModal({
+      ProductID: found.ProductID || found.id,
+      ProductName: found.ProductName || found.name,
+      CategoryID: found.CategoryName || found.CategoryID || found.category,
+      CategoryName: found.CategoryName || found.category,
+      Unit: found.Unit || found.defaultUnit || "Thùng",
+      Packaging: found.Packaging !== undefined ? found.Packaging : (found.spec || ""),
+      BasePrice: Number(found.BasePrice !== undefined ? found.BasePrice : (found.price || 0)),
+      Status: found.Status || found.status || "ACTIVE"
+    });
   },
 
   showProductFormModal(product) {
     const isEdit = !!product;
     const p = product || {
-      ProductID: "PROD_" + Math.floor(100 + Math.random() * 900),
+      ProductID: "PRD-" + Math.floor(100 + Math.random() * 900),
       ProductName: "",
-      CategoryID: "DMN_XE_MAY",
+      CategoryID: "Dầu Nhờn Xe Máy",
       CategoryName: "Dầu Nhờn Xe Máy",
       Unit: "Thùng",
-      Packaging: "Thùng 24 chai 0.8L",
+      Packaging: "Thùng 24 chai x 0.8L",
       BasePrice: 1500000,
       Status: "ACTIVE"
     };
 
-    const categories = [
-      { id: "DMN_XE_MAY", name: "Dầu Nhờn Xe Máy" },
-      { id: "DMN_OTO", name: "Dầu Động Cơ Ô Tô & Xe Tải" },
-      { id: "DMN_CONG_NGHIEP", name: "Dầu Công Nghiệp & Thủy Lực" },
-      { id: "MO_BO", name: "Mỡ Bôi Trơn Chịu Nhiệt" },
-      { id: "PHU_GIA", name: "Phụ Gia & Nước Làm Mát" }
+    const defaultCategories = [
+      "Dầu Nhờn Xe Máy",
+      "Dầu Động Cơ Ô Tô & Xe Tải",
+      "Dầu Nhờn & Mỡ Bôi Trơn",
+      "Dầu Công Nghiệp & Thủy Lực",
+      "Mỡ Bôi Trơn Chịu Nhiệt",
+      "Phụ Gia & Nước Làm Mát",
+      "Sơn Phủ",
+      "Sơn Lót",
+      "Chống Thấm",
+      "Dung Môi"
     ];
+    if (p.CategoryName && !defaultCategories.includes(p.CategoryName)) {
+      defaultCategories.unshift(p.CategoryName);
+    }
 
-    const units = ["Thùng", "Xô", "Chai", "Bình", "Phuy", "Lon", "Gói"];
+    const units = ["Thùng", "Xô", "Chai", "Bình", "Phuy", "Lon", "Can"];
 
     const content = `
       <div style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
         <span>${isEdit ? '✏ Cập Nhật Thông Tin Hàng Hóa' : '➕ Thêm Sản Phẩm Mới'}</span>
       </div>
       <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-        ${isEdit ? `Cập nhật thông số kỹ thuật, giá niêm yết hoặc trạng thái của mặt hàng [${p.ProductID}]` : 'Nhập thông tin sản phẩm mới vào danh mục hàng hóa của Kingpetro'}
+        ${isEdit ? `Cập nhật thông số kỹ thuật, giá niêm yết hoặc trạng thái của mặt hàng [${p.ProductID}]` : 'Nhập thông tin sản phẩm mới vào danh mục hàng hóa Kingpetro (lưu MySQL)'}
       </p>
 
       <form id="product-crud-form" onsubmit="event.preventDefault(); ManagerApp.saveProductForm('${p.ProductID}', ${isEdit});" style="display: flex; flex-direction: column; gap: 0.85rem;">
@@ -2383,12 +2764,11 @@ const ManagerApp = {
             <input type="text" id="p-form-id" value="${p.ProductID}" ${isEdit ? 'readonly' : ''} style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; font-weight: 700; background: ${isEdit ? 'var(--bg-subtle)' : 'var(--bg-main)'}; color: var(--text-main);" required />
           </div>
           <div style="flex: 2;">
-            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Phân Loại / Ngành Hàng</label>
-            <select id="p-form-category" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);">
-              ${categories.map(c => `
-                <option value="${c.id}" ${p.CategoryID === c.id ? 'selected' : ''}>${c.name}</option>
-              `).join("")}
-            </select>
+            <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Phân Loại / Ngành Hàng (*)</label>
+            <input type="text" id="p-form-category" list="kingpetro-cat-list" value="${p.CategoryName || p.CategoryID || ''}" placeholder="Chọn hoặc tự gõ phân loại mới..." style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-main); color: var(--text-main);" required />
+            <datalist id="kingpetro-cat-list">
+              ${defaultCategories.map(c => `<option value="${c}"></option>`).join("")}
+            </datalist>
           </div>
         </div>
 
@@ -2441,9 +2821,7 @@ const ManagerApp = {
   async saveProductForm(originalId, isEdit) {
     const id = document.getElementById("p-form-id").value.trim();
     const name = document.getElementById("p-form-name").value.trim();
-    const catSelect = document.getElementById("p-form-category");
-    const categoryId = catSelect.value;
-    const categoryName = catSelect.options[catSelect.selectedIndex].text;
+    const categoryName = (document.getElementById("p-form-category").value || "Dầu Nhờn & Mỡ Bôi Trơn").trim();
     const unit = document.getElementById("p-form-unit").value;
     const packaging = document.getElementById("p-form-packaging").value.trim();
     const price = parseFloat(document.getElementById("p-form-price").value) || 0;
@@ -2457,7 +2835,7 @@ const ManagerApp = {
     const productData = {
       ProductID: id,
       ProductName: name,
-      CategoryID: categoryId,
+      CategoryID: categoryName,
       CategoryName: categoryName,
       Unit: unit,
       Packaging: packaging,
@@ -2465,13 +2843,13 @@ const ManagerApp = {
       Status: status
     };
 
-    UI.showLoading("Đang lưu thông tin sản phẩm...");
-    const res = await ApiService.saveProduct(productData);
+    UI.showLoading("Đang lưu thông tin sản phẩm xuống MySQL...");
+    const res = await ApiService.saveProduct(productData, (this.currentUser && this.currentUser.Role) || "MANAGER");
     UI.hideLoading();
 
     if (res && res.success) {
       UI.closeModal();
-      UI.showToast(isEdit ? "Cập nhật sản phẩm thành công!" : "Đã thêm sản phẩm mới!", "success");
+      UI.showToast(res.message || (isEdit ? "Cập nhật sản phẩm thành công!" : "Đã thêm sản phẩm mới!"), "success");
       await this.renderProductsTab();
     } else {
       UI.showToast((res && res.message) || "Lỗi lưu sản phẩm", "danger");
@@ -2480,14 +2858,229 @@ const ManagerApp = {
 
   async toggleProductStatus(productId) {
     UI.showLoading("Đang đổi trạng thái sản phẩm...");
-    const res = await ApiService.toggleProductStatus(productId);
+    const res = await ApiService.toggleProductStatus(productId, (this.currentUser && this.currentUser.Role) || "MANAGER");
     UI.hideLoading();
 
     if (res && res.success) {
-      UI.showToast("Đã đổi trạng thái sản phẩm thành công!", "success");
+      UI.showToast(res.message || "Đã đổi trạng thái sản phẩm thành công!", "success");
       await this.renderProductsTab();
     } else {
       UI.showToast((res && res.message) || "Lỗi đổi trạng thái", "danger");
+    }
+  },
+
+  async handleDeleteProduct(productId) {
+    if (!confirm(`Bạn có chắc chắn muốn XÓA VĨNH VIỄN mặt hàng [${productId}] khỏi danh mục không?`)) {
+      return;
+    }
+    UI.showLoading("Đang xóa mặt hàng...");
+    const res = await ApiService.deleteProduct(productId, (this.currentUser && this.currentUser.Role) || "MANAGER");
+    UI.hideLoading();
+
+    if (res && res.success) {
+      UI.showToast(res.message || "Đã xóa mặt hàng thành công!", "success");
+      await this.renderProductsTab();
+    } else {
+      UI.showToast((res && res.message) || "Không thể xóa mặt hàng!", "danger");
+    }
+  },
+
+  // ----------------------------------------------------
+  // TAB 9: CÀI ĐẶT THÔNG SỐ HỆ THỐNG (ADMIN ONLY)
+  // ----------------------------------------------------
+  async renderSettingsTab() {
+    const content = document.getElementById("manager-tab-content");
+    if (!content) return;
+
+    if (typeof PermissionService !== "undefined" && !PermissionService.guard(this.currentUser, "MANAGE_SYSTEM_SETTINGS", "Chỉ ADMIN mới có quyền thay đổi thông số vận hành hệ thống!")) {
+      return;
+    }
+
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải thông số cấu hình từ MySQL...</div>`;
+
+    const res = await ApiService.getSettings();
+    const s = (res && res.settings) || {};
+
+    const gpsInterval = Number(s.GPS_INTERVAL ?? 5);
+    const customerRadius = Number(s.CUSTOMER_RADIUS ?? 200);
+    const gpsAccuracyLimit = Number(s.GPS_ACCURACY_LIMIT ?? 80);
+    const movingSpeed = Number(s.MOVING_SPEED_THRESHOLD ?? 1.2);
+    const stationaryDist = Number(s.STATIONARY_DISTANCE_THRESHOLD ?? 30);
+    const stationaryTime = Number(s.STATIONARY_TIME ?? 15);
+    const dwellRadius = Number(s.DWELL_RADIUS ?? 30);
+    const dwellThreshold = Number(s.DWELL_THRESHOLD_MINUTES ?? 5);
+    const cycleVip = Number(s.CARE_CYCLE_VIP ?? 3);
+    const cycleNormal = Number(s.CARE_CYCLE_NORMAL ?? 7);
+    const cycleSmall = Number(s.CARE_CYCLE_SMALL ?? 14);
+    const overdueWarn = Number(s.OVERDUE_WARNING_DAYS ?? 1);
+    const proximityAlert = Number(s.PROXIMITY_ALERT_RADIUS ?? 100);
+    const gpsRetentionDays = Number(s.GPS_RETENTION_DAYS ?? 90);
+
+    content.innerHTML = `
+      <div style="padding: 0.25rem;">
+        <div class="manager-sub-header" style="margin-bottom: 1.25rem;">
+          <div>
+            <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+              ${Icons.render('settings', { size: 22, color: '#4338ca' })} Cấu Hình Tham Số Vận Hành Hệ Thống
+            </h2>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
+              Chỉnh sửa chu kỳ định vị GPS, bán kính đối soát điểm bán và chu kỳ nhắc lịch chăm sóc khách hàng trên toàn hệ thống.
+            </div>
+          </div>
+          <button onclick="ManagerApp.saveSystemSettings()" class="btn-action-large btn-meet-customer" style="padding: 0.6rem 1.35rem; width: auto; font-weight: 700;">
+            💾 LƯU CẤU HÌNH HỆ THỐNG
+          </button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); ManagerApp.saveSystemSettings();" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+          <!-- Khối 1: Định vị GPS & Lộ trình -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #0369a1; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.4rem;">
+              ${Icons.render('map-pin', { size: 18, color: '#0369a1' })} 1. Định Vị GPS & Giám Sát Di Chuyển
+            </h3>
+
+            <div class="form-group" style="margin-bottom: 0.85rem;">
+              <label class="form-label">Chu kỳ gửi tọa độ GPS trong ca làm (Phút)</label>
+              <select id="cfg-gps-interval" class="form-control">
+                ${[1, 3, 5, 10, 15].map(m => `<option value="${m}" ${gpsInterval === m ? 'selected' : ''}>${m} phút / lần</option>`).join("")}
+              </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+              <div class="form-group">
+                <label class="form-label">Bán kính đối soát khách (Mét)</label>
+                <input type="number" id="cfg-customer-radius" class="form-control" value="${customerRadius}" min="10" max="5000" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Sai số GPS tối đa (Mét)</label>
+                <input type="number" id="cfg-gps-accuracy" class="form-control" value="${gpsAccuracyLimit}" min="10" max="500" required />
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
+              <div class="form-group">
+                <label class="form-label" style="font-size:0.75rem;">Tốc độ di chuyển (m/s)</label>
+                <input type="number" step="0.1" id="cfg-moving-speed" class="form-control" value="${movingSpeed}" min="0.5" max="20" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:0.75rem;">Ngưỡng đứng yên (Mét)</label>
+                <input type="number" id="cfg-stationary-dist" class="form-control" value="${stationaryDist}" min="5" max="300" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:0.75rem;">Cảnh báo dừng lâu (Phút)</label>
+                <input type="number" id="cfg-stationary-time" class="form-control" value="${stationaryTime}" min="5" max="240" required />
+              </div>
+            </div>
+
+            <div style="border-top: 1px dashed var(--border); padding-top: 0.85rem; margin-top: 0.85rem;">
+              <div style="font-size: 0.82rem; font-weight: 700; color: #0f766e; margin-bottom: 0.45rem;">🧹 Tự Động Dọn Rác Bảng GPS (<code>gps_logs</code>):</div>
+              <div style="display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap;">
+                <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+                  <label class="form-label" style="font-size:0.75rem;">Giữ tọa độ thô trong (Ngày)</label>
+                  <input type="number" id="cfg-gps-retention" class="form-control" value="${gpsRetentionDays}" min="7" max="365" required />
+                </div>
+                <button type="button" class="btn-action-inline" onclick="ManagerApp.handleCleanupGpsLogs()" style="padding: 0.55rem 0.85rem; background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; font-weight: 700;">
+                  🧹 Dọn rác GPS cũ ngay
+                </button>
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+                * Chỉ dọn tọa độ di chuyển thô quá hạn; lịch sử chăm sóc & đơn hàng 4 khối được lưu trữ vĩnh viễn.
+              </div>
+            </div>
+          </div>
+
+          <!-- Khối 2: Chu kỳ chăm sóc khách hàng -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #059669; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.4rem;">
+              ${Icons.render('users', { size: 18, color: '#059669' })} 2. Chu Kỳ Nhắc Chăm Sóc Khách Hàng
+            </h3>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin-bottom: 0.85rem;">
+              <div class="form-group">
+                <label class="form-label">Khách VIP (Ngày)</label>
+                <input type="number" id="cfg-cycle-vip" class="form-control" value="${cycleVip}" min="1" max="90" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Khách Thường (Ngày)</label>
+                <input type="number" id="cfg-cycle-normal" class="form-control" value="${cycleNormal}" min="1" max="90" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Khách Nhỏ (Ngày)</label>
+                <input type="number" id="cfg-cycle-small" class="form-control" value="${cycleSmall}" min="1" max="180" required />
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+              <div class="form-group">
+                <label class="form-label">Báo sắp đến hạn trước (Ngày)</label>
+                <input type="number" id="cfg-overdue-warn" class="form-control" value="${overdueWarn}" min="1" max="15" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cảnh báo trùng điểm gần (Mét)</label>
+                <input type="number" id="cfg-proximity-alert" class="form-control" value="${proximityAlert}" min="20" max="1000" required />
+              </div>
+            </div>
+
+            <div style="border-top: 1px dashed var(--border); padding-top: 0.85rem; margin-top: 0.5rem;">
+              <div style="font-size: 0.82rem; font-weight: 700; color: #7e22ce; margin-bottom: 0.5rem;">⚡ Tự động Check-in Ngầm (Dwell Time):</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.76rem;">Bán kính nhận diện dừng (Mét)</label>
+                  <input type="number" id="cfg-dwell-radius" class="form-control" value="${dwellRadius}" min="10" max="200" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-size:0.76rem;">Thời gian dừng tối thiểu (Phút)</label>
+                  <input type="number" id="cfg-dwell-minutes" class="form-control" value="${dwellThreshold}" min="1" max="60" required />
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    `;
+  },
+
+  async saveSystemSettings() {
+    const settingsPayload = {
+      GPS_INTERVAL: Number(document.getElementById("cfg-gps-interval")?.value || 5),
+      CUSTOMER_RADIUS: Number(document.getElementById("cfg-customer-radius")?.value || 200),
+      GPS_ACCURACY_LIMIT: Number(document.getElementById("cfg-gps-accuracy")?.value || 80),
+      MOVING_SPEED_THRESHOLD: Number(document.getElementById("cfg-moving-speed")?.value || 1.2),
+      STATIONARY_DISTANCE_THRESHOLD: Number(document.getElementById("cfg-stationary-dist")?.value || 30),
+      STATIONARY_TIME: Number(document.getElementById("cfg-stationary-time")?.value || 15),
+      CARE_CYCLE_VIP: Number(document.getElementById("cfg-cycle-vip")?.value || 3),
+      CARE_CYCLE_NORMAL: Number(document.getElementById("cfg-cycle-normal")?.value || 7),
+      CARE_CYCLE_SMALL: Number(document.getElementById("cfg-cycle-small")?.value || 14),
+      OVERDUE_WARNING_DAYS: Number(document.getElementById("cfg-overdue-warn")?.value || 1),
+      PROXIMITY_ALERT_RADIUS: Number(document.getElementById("cfg-proximity-alert")?.value || 100),
+      DWELL_RADIUS: Number(document.getElementById("cfg-dwell-radius")?.value || 30),
+      DWELL_THRESHOLD_MINUTES: Number(document.getElementById("cfg-dwell-minutes")?.value || 5),
+      GPS_RETENTION_DAYS: Number(document.getElementById("cfg-gps-retention")?.value || 90)
+    };
+
+    UI.showLoading("Đang lưu thông số cấu hình xuống MySQL...");
+    const res = await ApiService.saveSettings(settingsPayload);
+    UI.hideLoading();
+
+    if (res && res.success) {
+      UI.showToast(res.message || "Đã lưu cấu hình thông số hệ thống thành công!", "success");
+    } else {
+      UI.showToast((res && res.message) || "Không thể lưu cấu hình hệ thống!", "danger");
+    }
+  },
+
+  async handleCleanupGpsLogs() {
+    const days = Math.max(7, Number(document.getElementById("cfg-gps-retention")?.value || 90));
+    if (!confirm(`Dọn dẹp các bản ghi tọa độ thô trong bảng gps_logs cũ hơn ${days} ngày?\n(Lịch sử chăm sóc & đơn hàng của khách hàng vẫn giữ nguyên 100%)`)) {
+      return;
+    }
+    UI.showLoading("Đang dọn rác bảng gps_logs...");
+    const res = await ApiService.cleanupGpsLogs(days);
+    UI.hideLoading();
+    if (res && res.success) {
+      UI.showToast(res.message || "Đã dọn rác tọa độ GPS cũ thành công!", "success");
+    } else {
+      UI.showToast((res && res.message) || "Không thể dọn rác GPS!", "danger");
     }
   }
 };

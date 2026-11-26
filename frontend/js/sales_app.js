@@ -1,4 +1,4 @@
-1/**
+/**
  * SALES MOBILE APP CONTROLLER
  * Powers the fast, simple, touch-optimized mobile experience for field reps.
  */
@@ -30,6 +30,8 @@ const SalesApp = {
       DWELL_THRESHOLD_MINUTES: 5
     };
 
+    // Sync live product catalog from MySQL backend
+    ApiService.getProducts(null, "ACTIVE").catch(() => {});
     // Check if user already has an active working session
     await this.refreshSessionState();
     // Load assigned customers
@@ -38,28 +40,108 @@ const SalesApp = {
     this.render();
   },
 
+  parseSafeDate(dtStr) {
+    if (!dtStr) return new Date();
+    return new Date(String(dtStr).replace(" ", "T"));
+  },
+
   async refreshSessionState() {
     const res = await ApiService.getActiveSession(this.currentUser.UserID);
+    if (res && res.offline && this.activeSession) {
+      // Mất mạng tạm thời khi đã có phiên trên RAM -> Giữ nguyên ca làm việc, không tự ngắt ca
+      return;
+    }
+
     if (res && res.success && res.session) {
       this.activeSession = res.session;
+      // Chuẩn hóa đồng nhất chữ hoa/thường cho SessionID
+      if (!this.activeSession.SessionID && this.activeSession.sessionId) {
+        this.activeSession.SessionID = this.activeSession.sessionId;
+      }
+      if (!this.activeSession.CheckInTime && this.activeSession.checkInTime) {
+        this.activeSession.CheckInTime = this.activeSession.checkInTime;
+      }
 
       // If working, resume GPS tracking
       if (!GeoService.isTracking) {
         this.startGpsTracking();
       }
 
-      // Check if there is an ongoing visit in local storage or DB
-      const db = MockDatabase.getDB();
-      const visit = db.VISITS.find(v => v.SessionID === this.activeSession.SessionID && v.Status === "IN_PROGRESS");
-      if (visit) {
-        this.activeVisit = visit;
-        this.startVisitTimer(new Date(visit.CheckInTime));
+      // Khôi phục lượt ghé thăm đang diễn ra trực tiếp từ MySQL API (chỉ đọc MockDatabase khi bật chế độ Demo)
+      if (res.activeVisit) {
+        this.activeVisit = res.activeVisit;
+        if (!this.activeVisit.VisitID && this.activeVisit.visitId) {
+          this.activeVisit.VisitID = this.activeVisit.visitId;
+        }
+        this.startVisitTimer(this.parseSafeDate(this.activeVisit.CheckInTime || this.activeVisit.checkInTime));
+      } else if (ApiService.isMockMode()) {
+        const db = MockDatabase.getDB();
+        const visit = db.VISITS.find(v => v.SessionID === this.activeSession.SessionID && v.Status === "IN_PROGRESS");
+        if (visit) {
+          this.activeVisit = visit;
+          this.startVisitTimer(this.parseSafeDate(visit.CheckInTime));
+        }
+      } else {
+        this.activeVisit = null;
+        this.stopVisitTimer();
       }
-    } else {
+    } else if (res && res.success) {
       this.activeSession = null;
       this.activeVisit = null;
       GeoService.stopTracking();
       this.stopVisitTimer();
+    }
+  },
+
+  renderOfflineBannerHtml() {
+    const isOffline = (typeof navigator !== "undefined" && navigator.onLine === false);
+    const pendingCount = (typeof ApiService.getOfflineQueueCount === "function") ? ApiService.getOfflineQueueCount() : 0;
+    if (!isOffline && pendingCount === 0) return "";
+
+    const bgColor = isOffline ? "#fffbeb" : "#eff6ff";
+    const borderColor = isOffline ? "#f59e0b" : "#3b82f6";
+    const textColor = isOffline ? "#92400e" : "#1e40af";
+    const statusTitle = isOffline
+      ? `Đang ngoại tuyến (Mất sóng 4G/WiFi)`
+      : `Đã có sóng mạng trở lại`;
+    const subText = pendingCount > 0
+      ? `Có <strong>${pendingCount}</strong> thao tác đang chờ đồng bộ lên máy chủ.`
+      : `Bạn vẫn có thể ghi nhận chăm sóc; dữ liệu sẽ tự lưu vào bộ nhớ máy.`;
+
+    return `
+      <div id="sales-offline-banner" style="background: ${bgColor}; border: 1px solid ${borderColor}; border-left: 4px solid ${borderColor}; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <div style="font-size: 0.8rem; color: ${textColor}; line-height: 1.35;">
+          <div style="font-weight: 800; display: flex; align-items: center; gap: 0.35rem;">
+            ${Icons.render('alert-triangle', { size: 14, color: textColor })} ${statusTitle}
+          </div>
+          <div>${subText}</div>
+        </div>
+        ${pendingCount > 0 ? `
+          <button onclick="SalesApp.syncOfflineNow()" style="padding: 0.38rem 0.7rem; border-radius: 6px; border: none; background: ${borderColor}; color: #fff; font-size: 0.76rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+            ${Icons.render('refresh-cw', { size: 12, color: '#fff' })} Đồng bộ (${pendingCount})
+          </button>
+        ` : ""}
+      </div>
+    `;
+  },
+
+  updateOfflineBanner() {
+    const wrapper = document.getElementById("sales-offline-banner-slot");
+    if (wrapper) {
+      wrapper.innerHTML = this.renderOfflineBannerHtml();
+    }
+  },
+
+  async syncOfflineNow() {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return UI.showToast("Thiết bị chưa có kết nối mạng 4G/WiFi. Hệ thống sẽ tự gửi ngay khi có sóng!", "warning");
+    }
+    UI.showLoading("Đang đẩy dữ liệu ngoại tuyến lên máy chủ...");
+    const res = await ApiService.flushOfflineQueue();
+    UI.hideLoading();
+    this.updateOfflineBanner();
+    if (res.synced === 0 && res.remaining > 0) {
+      UI.showToast("Chưa thể kết nối máy chủ, vui lòng thử lại khi sóng ổn định hơn.", "warning");
     }
   },
 
@@ -90,6 +172,7 @@ const SalesApp = {
 
       container.innerHTML = `
         <div class="sales-mobile-container">
+          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
           <div class="greeting-card">
             <div class="greeting-text">
               <h2>Xin chào, ${this.currentUser.Name}</h2>
@@ -268,6 +351,7 @@ const SalesApp = {
 
       container.innerHTML = `
         <div class="sales-mobile-container">
+          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
           <!-- GREETING BAR -->
           <div class="greeting-card">
             <div class="greeting-text">
@@ -423,8 +507,21 @@ const SalesApp = {
       UI.hideLoading();
 
       if (res && res.success) {
-        this.activeSession = res.session;
-        UI.showToast("Bắt đầu ca làm việc thành công!", "success");
+        this.activeSession = res.session || {
+          SessionID: res.SessionID || res.sessionId,
+          SalesID: this.currentUser.UserID,
+          CheckInTime: res.checkInTime || new Date().toISOString(),
+          Status: "WORKING"
+        };
+        if (!this.activeSession.SessionID && this.activeSession.sessionId) {
+          this.activeSession.SessionID = this.activeSession.sessionId;
+        }
+        UI.showToast(
+          res.queuedOffline
+            ? "Đang yếu sóng 4G: Đã mở ca ngoại tuyến, sẽ tự đồng bộ khi có mạng!"
+            : "Bắt đầu ca làm việc thành công!",
+          res.queuedOffline ? "warning" : "success"
+        );
         this.startGpsTracking();
         this.render();
       } else {
@@ -593,7 +690,13 @@ const SalesApp = {
         this.stopVisitTimer();
         this.activeSession = null;
         this.activeVisit = null;
-        UI.showToast(`Đã hoàn thành ca! Tổng thời gian: ${res.duration} phút.`, "success");
+        const dur = res.duration !== undefined ? res.duration : (res.workDuration || 0);
+        UI.showToast(
+          res.queuedOffline
+            ? "Đã kết thúc ca (lưu ngoại tuyến, tự gửi lên máy chủ khi có sóng)!"
+            : `Đã hoàn thành ca! Tổng thời gian: ${dur} phút.`,
+          res.queuedOffline ? "warning" : "success"
+        );
         this.render();
       } else {
         UI.showToast(res.message || "Lỗi khi kết thúc ca.", "error");
@@ -622,11 +725,13 @@ const SalesApp = {
     this.showCareCheckoutModal(customerId);
   },
 
-  handleLeaveVisit() {
+  async handleLeaveVisit() {
     if (!this.activeVisit) return;
     if (confirm("Bạn có chắc muốn rời khỏi điểm bán này mà không lưu ghi chú cập nhật?")) {
+      const vid = this.activeVisit.VisitID || this.activeVisit.visitId || "";
       this.stopVisitTimer();
       this.activeVisit = null;
+      ApiService.cancelVisit(vid, this.currentUser.UserID).catch(() => {});
       UI.showToast("Đã rời khỏi điểm bán", "info");
       this.render();
     }
@@ -721,11 +826,14 @@ const SalesApp = {
       navigator.geolocation.getCurrentPosition(
         pos => {
           coords = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
-          const badge = document.getElementById("prospect-gps-badge");
-          if (badge) badge.innerText = `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+          const latInp = document.getElementById("prospect-lat");
+          const lngInp = document.getElementById("prospect-lng");
+          if (latInp) latInp.value = coords.lat.toFixed(6);
+          if (lngInp) lngInp.value = coords.lng.toFixed(6);
+          GeoService.setMiniMapPosition(coords.lat, coords.lng, 17);
         },
         () => { },
-        { timeout: 2000, maximumAge: 60000 }
+        { timeout: 2500, maximumAge: 60000 }
       );
     }
 
@@ -739,27 +847,55 @@ const SalesApp = {
 
       <div class="form-group">
         <label class="form-label">Tên Đại Lý / Cửa Hàng (*)</label>
-        <input type="text" id="prospect-name" class="form-control" placeholder="Tạp Hóa / Tiệm Cà Phê..." />
+        <input type="text" id="prospect-name" class="form-control" placeholder="Đại Lý Nhớt / Tiệm Sửa Xe..." />
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+        <div class="form-group">
+          <label class="form-label">Người Liên Hệ</label>
+          <input type="text" id="prospect-contact" class="form-control" placeholder="Tên chủ tiệm" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Số Điện Thoại (*)</label>
+          <input type="text" id="prospect-phone" class="form-control" placeholder="09xxxxxxxx" />
+        </div>
       </div>
 
       <div class="form-group">
-        <label class="form-label">Người Liên Hệ</label>
-        <input type="text" id="prospect-contact" class="form-control" placeholder="Tên chủ tiệm / quản lý" />
+        <label class="form-label">Địa Chỉ (*) — Gõ địa chỉ để tìm hoặc ghim bên dưới</label>
+        <div style="display: flex; gap: 0.4rem;">
+          <input
+            type="text"
+            id="prospect-address"
+            class="form-control"
+            style="flex: 1;"
+            placeholder="Số nhà, tên đường, quận/huyện..."
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); GeoService.searchAddressForPicker({addressInputId:'prospect-address',latInputId:'prospect-lat',lngInputId:'prospect-lng',resultsBoxId:'prospect-geo-results'});}"
+          />
+          <button
+            type="button"
+            class="btn-action-inline"
+            style="background: #0284c7; color: #fff; border: none; padding: 0.45rem 0.7rem; font-weight: 700; white-space: nowrap; border-radius: 6px;"
+            onclick="GeoService.searchAddressForPicker({addressInputId:'prospect-address',latInputId:'prospect-lat',lngInputId:'prospect-lng',resultsBoxId:'prospect-geo-results'})"
+          >
+            🔍 Tìm
+          </button>
+        </div>
+        <div id="prospect-geo-results" style="display: none; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-top: 0.35rem; max-height: 140px; overflow-y: auto;"></div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Số Điện Thoại (* Chống trùng)</label>
-        <input type="text" id="prospect-phone" class="form-control" placeholder="09xxxxxxxx" />
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Địa Chỉ (*)</label>
-        <input type="text" id="prospect-address" class="form-control" placeholder="Số nhà, tên đường..." />
-      </div>
-
-      <div style="background: var(--bg-subtle); padding: 0.55rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted);">
-        ${Icons.render('map-pin', { size: 13, color: '#2563eb' })} 
-        <div>Tọa độ tham chiếu: <strong id="prospect-gps-badge" style="color: var(--text-main);">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</strong></div>
+      <div style="background: var(--bg-subtle); padding: 0.6rem; border-radius: 8px; margin-bottom: 0.85rem; border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-main);">📍 Bấm / Kéo ghim vị trí điểm bán:</span>
+          <button type="button" class="btn-action-inline" style="padding: 0.2rem 0.5rem; font-size: 0.72rem;" onclick="GeoService.fillAddressFromPin('prospect-address','prospect-lat','prospect-lng')">
+            📝 Lấy tên đường
+          </button>
+        </div>
+        <div id="prospect-minimap" style="width: 100%; height: 185px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 0.45rem; z-index: 1;"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
+          <input type="number" step="any" id="prospect-lat" class="form-control" style="font-size: 0.8rem; padding: 0.35rem 0.5rem;" value="${coords.lat.toFixed(6)}" />
+          <input type="number" step="any" id="prospect-lng" class="form-control" style="font-size: 0.8rem; padding: 0.35rem 0.5rem;" value="${coords.lng.toFixed(6)}" />
+        </div>
       </div>
 
       <div class="form-group">
@@ -768,11 +904,19 @@ const SalesApp = {
       </div>
 
       <button id="btn-submit-prospect" class="btn-action-large btn-meet-customer" style="margin-top: 0.5rem;">
-        ${Icons.render('save', { size: 16 })} GỬI DUYỆT KHÁCH HÀNG
+        ${Icons.render('save', { size: 16 })} LƯU ĐIỂM BÁN MỚI
       </button>
     `;
 
     UI.showModal(content);
+    GeoService.initMiniMapPicker({
+      containerId: "prospect-minimap",
+      latInputId: "prospect-lat",
+      lngInputId: "prospect-lng",
+      addressInputId: "prospect-address",
+      initialLat: coords.lat,
+      initialLng: coords.lng
+    });
 
     document.getElementById("btn-submit-prospect").onclick = async () => {
       const name = document.getElementById("prospect-name").value;
@@ -781,13 +925,16 @@ const SalesApp = {
         return;
       }
 
+      const finalLat = parseFloat(document.getElementById("prospect-lat")?.value) || coords.lat;
+      const finalLng = parseFloat(document.getElementById("prospect-lng")?.value) || coords.lng;
+
       const data = {
         CustomerName: name.trim(),
         ContactName: document.getElementById("prospect-contact").value,
         Phone: document.getElementById("prospect-phone").value,
         Address: document.getElementById("prospect-address").value,
-        Latitude: coords.lat,
-        Longitude: coords.lng,
+        Latitude: finalLat,
+        Longitude: finalLng,
         Note: document.getElementById("prospect-note").value
       };
 
@@ -835,9 +982,20 @@ const SalesApp = {
     );
 
     if (res && res.success) {
-      this.activeVisit = res.visit;
-      this.startVisitTimer(new Date(res.visit.CheckInTime));
-      return res.visit;
+      const visitObj = res.visit || {
+        VisitID: res.VisitID || res.visitId,
+        SalesID: this.currentUser.UserID,
+        CustomerID: customerId,
+        SessionID: this.activeSession ? this.activeSession.SessionID : "",
+        CheckInTime: res.checkInTime || new Date().toISOString(),
+        Status: "IN_PROGRESS"
+      };
+      if (!visitObj.VisitID && visitObj.visitId) {
+        visitObj.VisitID = visitObj.visitId;
+      }
+      this.activeVisit = visitObj;
+      this.startVisitTimer(this.parseSafeDate(visitObj.CheckInTime || visitObj.checkInTime));
+      return visitObj;
     }
     return null;
   },
@@ -1156,6 +1314,7 @@ const SalesApp = {
 
     document.getElementById("btn-submit-care").onclick = async () => {
       const careData = {
+        CustomerID: cust ? cust.CustomerID : "",
         SelectedProduct: document.getElementById("care-product-select") ? document.getElementById("care-product-select").value : "",
         DistributedQty: document.getElementById("care-dist-qty").value,
         DistributedUnit: document.getElementById("care-dist-unit") ? document.getElementById("care-dist-unit").value : "Thùng",
@@ -1174,10 +1333,10 @@ const SalesApp = {
       };
 
       UI.showLoading("Đang lưu lịch sử chăm sóc và cập nhật chu kỳ...");
-      let visitId = this.activeVisit ? this.activeVisit.VisitID : null;
+      let visitId = this.activeVisit ? (this.activeVisit.VisitID || this.activeVisit.visitId) : null;
       if (!visitId && cust) {
         const visit = await this._autoCheckinCustomer(cust.CustomerID);
-        if (visit) visitId = visit.VisitID;
+        if (visit) visitId = visit.VisitID || visit.visitId;
       }
       const res = await ApiService.checkoutCareVisit(visitId || ("VIS-" + Date.now()), this.currentUser.UserID, careData);
       UI.hideLoading();
@@ -1186,11 +1345,16 @@ const SalesApp = {
         UI.closeModal();
         this.stopVisitTimer();
         this.activeVisit = null;
-        UI.showToast(`Hoàn tất chăm sóc! Lần hẹn tiếp theo đã được tự động tính.`, "success");
+        UI.showToast(
+          res.queuedOffline
+            ? "Mất sóng 4G: Nội dung chăm sóc 4 khối đã lưu vào máy và sẽ tự đồng bộ khi có mạng!"
+            : "Hoàn tất chăm sóc! Lần hẹn tiếp theo đã được tự động tính.",
+          res.queuedOffline ? "warning" : "success"
+        );
         await this.loadCustomers();
         this.render();
       } else {
-        UI.showToast(res.message || "Lỗi lưu chăm sóc", "error");
+        UI.showToast((res && res.message) || "Lỗi lưu chăm sóc", "error");
       }
     };
   },
@@ -1315,7 +1479,12 @@ const SalesApp = {
 
     if (res && res.success) {
       UI.closeModal();
-      UI.showToast("Đã gửi yêu cầu cập nhật thông tin khách hàng lên Quản lý phê duyệt!", "success");
+      UI.showToast(
+        res.queuedOffline
+          ? "Mất sóng 4G: Đề xuất sửa đổi đã lưu vào máy và sẽ tự gửi Quản lý khi có mạng!"
+          : "Đã gửi yêu cầu cập nhật thông tin khách hàng lên Quản lý phê duyệt!",
+        res.queuedOffline ? "warning" : "success"
+      );
     } else {
       UI.showToast((res && res.message) || "Lỗi gửi yêu cầu", "danger");
     }

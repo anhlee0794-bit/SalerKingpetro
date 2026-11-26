@@ -1,0 +1,20 @@
+{
+  "name": "KingPetro Sales Field Management",
+  "short_name": "KingPetro Sale",
+  "description": "Ứng dụng quản lý lộ trình đi tuyến & chăm sóc đại lý dầu nhờn KingPetro.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#1d4ed8",
+  "lang": "vi",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -13,7 +13,7 @@ Hệ thống gồm 2 thành phần chính:
    - **Manager Desktop UI**: Dashboard Pastel/Clean, KPI thẻ thống kê, Live Sales Monitor, Bản đồ tương tác Leaflet / OpenStreetMap (Lộ trình di chuyển, vị trí hiện tại, điểm ghé thăm), Timeline chi tiết phiên làm việc, Báo cáo & Cảnh báo bất thường.
 
 ## 2. Cấu trúc Database (Google Sheets)
-- **USERS**: `UserID`, `Name`, `Email`, `Role` (ADMIN/MANAGER/SALES), `Phone`, `Team`, `Status`, `CreatedAt`
+- **USERS**: `UserID`, `Name`, `Email`, `Password` (Bcrypt Hash), `Role` (ADMIN/MANAGER/SALES), `Phone`, `Team`, `Status`, `CreatedAt`
 - **CUSTOMERS**: `CustomerID`, `CustomerName`, `ContactName`, `Phone`, `Address`, `Latitude`, `Longitude`, `AssignedSalesID`, `Status`, `Note`, `CreatedAt`, `CustomerType` (VIP/NORMAL/SMALL), `CareCycleDays`, `LastCareDate`, `NextCareDate`, `CurrentDebt`, `CurrentStock`
 - **WORK_SESSIONS**: `SessionID`, `SalesID`, `Date`, `CheckInTime`, `CheckInLatitude`, `CheckInLongitude`, `CheckInAccuracy`, `CheckOutTime`, `CheckOutLatitude`, `CheckOutLongitude`, `WorkDuration`, `Status` (WORKING/COMPLETED)
 - **GPS_LOGS**: `GPSLogID`, `SessionID`, `SalesID`, `Timestamp`, `Latitude`, `Longitude`, `Accuracy`, `Speed`, `ActivityStatus` (MOVING/STATIONARY/UNKNOWN)
@@ -27,10 +27,13 @@ Hệ thống gồm 2 thành phần chính:
 
 ## 3. Trạng thái hiện tại
 - **Môi trường Production Thực Tế (Live Deployment)**:
-  - Domain chính thức: `https://hiepphucduc.vn/saler/`
-  - Backend API: `https://hiepphucduc.vn/saler/api/api.php`
-  - Database: MySQL `luatdoan_kingpetrosaler` trên hosting cPanel (`139.99.50.190`).
+  - Domain chính thức: `https://hiepphucduc.vn/saler/` (hỗ trợ cài đặt **PWA `standalone`** ra màn hình chính iOS/Android qua `manifest.json` & `sw.js`).
+  - Backend API: `https://hiepphucduc.vn/saler/api/api.php` (bảo vệ thư mục & file cấu hình nhạy cảm bằng `.htaccess` trả `403 Forbidden`).
+  - Database: MySQL `luatdoan_kingpetrosaler` trên hosting cPanel (`139.99.50.190`), tự động dọn tọa độ `gps_logs` thô cũ quá 90 ngày trong khi lưu trữ vĩnh viễn lịch sử chăm sóc `visits`.
   - Web chính WordPress chạy tại: `https://hiepphucduc.vn/`.
+  - Cơ chế xác thực & Bảo mật: Mật khẩu mã hóa Bcrypt + **JWT Auth Token (HS256)** bắt buộc trên 100% API đọc/ghi (`requireAuth`), lưu phiên **3 ngày (72 giờ)**, cô lập dữ liệu từng Sales và ẩn hoàn toàn công cụ Test/Mock GPS đối với `SALES` và `MANAGER`.
+  - Độ ổn định hiện trường (Offline-Resilient): Tắt fallback sang `MockDatabase` trên môi trường thật; tích hợp **Offline Queue (`sales_field_offline_queue`)** tự lưu ca làm, tọa độ GPS và phiếu chăm sóc 4 khối khi mất sóng 4G và tự đẩy bù FIFO khi có mạng lại.
+  - Quản trị & Báo cáo toàn diện (100% MySQL): Dashboard thời gian thực, Bản đồ đa lớp miễn phí + OSRM Routing, Timeline chi tiết, Báo cáo hiệu suất theo Kỳ, Quản lý Nhân sự, Khách hàng (Free Geocoding OSM/Photon & Mini-Map Picker), Hàng hóa, Phê duyệt đề xuất và Tab Cài đặt 14 tham số vận hành.
 - Đã nâng cấp toàn diện Hệ thống Quản Lý Chăm Sóc Khách Hàng (Customer Care & Retention Engine).
 - Tự động tính toán chu kỳ chăm sóc, phát hiện cảnh báo quá hạn đỏ/cam/xanh, thu thập 4 khối dữ liệu khi ghé thăm và quản lý tồn kho/công nợ.
 - Đã hoàn thiện Hệ thống Phân Quyền Theo Vai Trò (RBAC): Ma trận quyền hạn độc lập (`frontend/js/permissions.js`), quản lý phiên Auth bền vững qua `localStorage`, phân quyền tab và nút bấm (UI Guard), chặn thao tác nhạy cảm (Action Guard) và Tab Quản lý nhân sự & Phân bổ tuyến cho ADMIN.

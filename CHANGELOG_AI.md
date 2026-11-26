@@ -1,5 +1,135 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-26] - Hoàn Thiện Đồng Bộ API MySQL, Hàng Đợi Offline 4G, PWA Di Động & Bảo Mật Máy Chủ (9 Hạng Mục Production)
+- **Mục đích / Bối cảnh**: Xử lý trọn vẹn 9 hạng mục trọng yếu thuộc 3 nhóm ưu tiên (🔴 Khớp 100% API Frontend - MySQL, 🟠 Chống mất dữ liệu khi rớt sóng 3G/4G & Cài đặt PWA trên điện thoại, 🟡 Khóa chặt JWT 100% endpoint, chặn truy cập thư mục `.htaccess` và tự động dọn rác bảng `gps_logs`) trước khi bàn giao đội ngũ Sales vận hành thực tế.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/api.php`:
+    - **🔴 Nhóm 1 (API Parity)**:
+      - Nâng cấp toàn diện `getManagerDashboard`: Trả về đầy đủ `stats` (13 chỉ số vận hành, công nợ, tồn kho, chu kỳ), danh sách `sales` kèm tọa độ `lastGps` thời gian thực và `careAlerts` (`overdue`, `dueSoon`, `onTrack`, `neverVisited`, `highDebt`, `lowStock`).
+      - Bổ sung 2 API quản trị còn thiếu: `getSalesTimeline` (Tab 3: Lộ trình `gpsRoute`, `timeline`, `summary`, cảnh báo `anomalies`) và `getPerformanceReports` (Tab 7: Lọc thực tế theo `today`/`week`/`month`/`all`, xếp hạng hiệu suất, tỷ lệ hoàn thành tuyến).
+      - Sửa `checkoutCareVisit` đọc chuẩn cả gói `careData` (PascalCase) lẫn gốc `$params` (camelCase), lưu đầy đủ `result`, `note`, 4 khối hàng hóa/tồn kho/công nợ/đơn mới, tự giữ nguyên công nợ/tồn kho cũ nếu bỏ trống, cập nhật `stock_unit` cho đại lý và tự động nâng cột `visits.reorder_demand` sang `VARCHAR(255)`; bổ sung thêm `checkoutVisit` và `cancelVisit`.
+      - Sửa lỗi thiếu tham số SQL (`?`) trong `requestCustomerUpdate` và đồng bộ hoa/thường khi ghi đè khách hàng ở `resolveCustomerUpdateRequest` + `getCustomerVisits`.
+      - Đồng nhất song ngữ `SessionID`/`sessionId` và `VisitID`/`visitId` trên `getActiveSession` (trả kèm `activeVisit` đang `IN_PROGRESS`), `startWork` (trả kèm object `session` và lưu điểm GPS mở ca đầu tiên), `checkinVisit` (trả kèm object `visit`), `endWork` (trả cả `duration` và `workDuration`).
+    - **🟡 Nhóm 3 (Bảo mật JWT & Dọn rác GPS)**:
+      - Áp dụng middleware `requireAuth()` kiểm tra chữ ký JWT HS256 bắt buộc trên 100% endpoint đọc/ghi (trừ `login` và `verifyToken`), kèm hàm `resolveTargetSalesId()` cô lập dữ liệu từng Sales.
+      - Bổ sung `purgeOldGpsLogs()` tự động dọn tọa độ thô trong `gps_logs` cũ quá 90 ngày (chạy đầu ca `startWork`, xác suất 1/100 trên `recordGps`, và qua API `cleanupGpsLogs` cho Admin) trong khi giữ vĩnh viễn lịch sử chăm sóc bảng `visits`.
+  - `backend-php/config.php` & `backend-php/schema.sql`: Đặt `SYNC_TO_GOOGLE_SHEETS = false` mặc định, thêm hằng số `GPS_LOG_RETENTION_DAYS = 90` và cập nhật schema `reorder_demand VARCHAR(255)`.
+  - `backend-php/.htaccess` & `frontend/.htaccess`: Tắt liệt kê thư mục (`Options -Indexes`) và chặn `403 Forbidden` mọi truy cập HTTP trực tiếp vào `config.php`, `sync.php`, `schema.sql`, `README.md`, `.env`.
+  - `frontend/js/api.js`:
+    - Ngắt hoàn toàn cơ chế tự nhảy sang dữ liệu giả `MockDatabase` khi đang chạy Production (`!isMockMode()`).
+    - Xây dựng **Offline Queue (`sales_field_offline_queue`)**: Tự động xếp hàng các thao tác hiện trường (`startWork`, `endWork`, `recordGps`, `checkinVisit`, `cancelVisit`, `checkoutVisit`, `checkoutCareVisit`, `requestCustomerUpdate`) kèm `clientTimestamp` khi mất sóng 4G, tự động ánh xạ mã tạm `SES-OFFLINE-*`/`VIS-OFFLINE-*` và đẩy bù FIFO qua `flushOfflineQueue()` ngay khi có mạng trở lại (`window.online`).
+    - Lưu đệm bản đọc gần nhất từ MySQL (`getCustomers`, `getSettings`, `getActiveSession`) để Sales mở app vùng mất sóng vẫn thấy đúng đại lý thật; báo lỗi mạng rõ ràng cho các thao tác Quản trị khi offline.
+  - `frontend/js/sales_app.js`: Khôi phục `activeVisit` trực tiếp từ MySQL (`getActiveSession`) thay vì đọc `MockDatabase`, gọi `cancelVisit` khi rời điểm bán, chuẩn hóa `parseSafeDate()` trên Safari iOS và hiển thị thanh trạng thái Ngoại tuyến kèm nút `Đồng bộ ngay`.
+  - `frontend/manifest.json`, `frontend/icon.svg`, `frontend/sw.js`, `frontend/index.html`, `frontend/js/app.js`: Cấu hình chuẩn **PWA (Add to Home Screen)** chạy toàn màn hình `standalone` với Service Worker chiến lược Network-First cho App Shell (`?v=20261126g`).
+  - `frontend/js/manager_app.js`: Bổ sung cài đặt `GPS_RETENTION_DAYS` và nút `🧹 Dọn rác GPS cũ ngay` trong Tab 9 (Cài Đặt Hệ Thống).
+  - `tests/test_logic.py`: Bổ sung 3 bộ unit test mới cho `checkoutCareVisit`, `OfflineQueueSimulator` và `GpsRetentionCleaner` (Pass **29/29** tests).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` (29/29 PASS) & `node --check` trên toàn bộ 9 file JS (0 lỗi cú pháp).
+  - Đồng bộ nguyên tử FTP 13 file lên `https://hiepphucduc.vn/saler/` và kiểm tra E2E thực tế: gọi không Token bị chặn `tokenExpired: true`, `/api/config.php` và `/api/` trả `HTTP 403`, `manifest.json` & `sw.js` trả `HTTP 200`, `getManagerDashboard` / `getSalesTimeline` / `getPerformanceReports` / `getActiveSession` / `cleanupGpsLogs` trả dữ liệu chuẩn 100%.
+
+## [2026-11-26] - Tích Hợp Tìm Địa Chỉ Ra Tọa Độ Miễn Phí (Free Geocoding) & Bản Đồ Kéo Thả Ghim (Mini-Map Picker)
+- **Mục đích / Bối cảnh**: Giúp Quản lý ngồi tại văn phòng hoặc nhân viên Sales thêm/sửa đại lý có thể gõ địa chỉ để tự dò ra Kinh độ & Vĩ độ chính xác (chi phí 0đ, không cần Google Maps API) hoặc bấm/kéo thả ghim trực tiếp trên bản đồ đường phố & vệ tinh ngay trong biểu mẫu.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/geo.js`:
+    - Bổ sung `GeoService.geocodeAddress(query)`: Kết hợp **OpenStreetMap Nominatim** (ưu tiên Việt Nam `countrycodes=vn`) kèm dự phòng tự động **Photon API** (`photon.komoot.io`).
+    - Bổ sung `GeoService.reverseGeocode(lat, lng)` & `fillAddressFromPin()`: Tự tra ngược tên đường tiếng Việt từ vị trí ghim trên bản đồ.
+    - Bổ sung `GeoService.initMiniMapPicker()`, `setMiniMapPosition()`, `searchAddressForPicker()`, `selectSearchResult()`: Bản đồ nhỏ tương tác hỗ trợ bấm chọn điểm, kéo thả ghim (`draggable: true`), chuyển lớp Đường phố / Vệ tinh Esri và đồng bộ 2 chiều với ô Kinh độ & Vĩ độ.
+  - `frontend/js/manager_app.js`: Tích hợp nút `🔍 Tìm tọa độ`, danh sách gợi ý địa điểm, nút `📝 Lấy địa chỉ từ ghim` và khung bản đồ nhỏ tương tác vào cả `showAddCustomerModal()` và `showEditCustomerModal()`.
+  - `frontend/js/sales_app.js`: Tích hợp tìm địa chỉ và bản đồ nhỏ kéo thả ghim vào `showCreateProspectModal()` cho nhân viên Sales.
+  - `frontend/index.html`: Nâng version chống cache `?v=20261126f`.
+  - `tests/test_logic.py`: Bổ sung `test_geocoding_result_normalization_osm_and_photon` (Pass 26/26 unit tests).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` & `node --check`: 26/26 unit tests PASS, 0 lỗi cú pháp.
+  - Đồng bộ nguyên tử (atomic FTP upload) trực tiếp lên server `https://hiepphucduc.vn/saler/`.
+
+
+## [2026-11-26] - Khắc Phục Lỗi Watermark `API KEY REQUIRED` Của CartoDB Trên Domain Thực Tế & Bổ Sung 4 Lớp Bản Đồ Miễn Phí
+- **Mục đích / Bối cảnh**: Máy chủ nền bản đồ CartoDB (`basemaps.cartocdn.com`) tự động gắn chữ chìm `API KEY REQUIRED` khi phát hiện request đến từ tên miền doanh nghiệp thực tế (`https://hiepphucduc.vn/`). Chuyển sang hệ thống đa lớp bản đồ miễn phí 100% không giới hạn, không cần API Key.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/manager_app.js`: Thêm hàm `attachFreeMapBaseLayers(map)` tích hợp bộ chuyển đổi 4 lớp nền miễn phí (`OpenStreetMap Standard`, `OSM Humanitarian HOT`, `Esri World Street`, `Esri Satellite Ảnh Vệ Tinh`) kèm tự động dự phòng `tileerror` cho cả `initLeafletMap()` và `initCustomerMap()`.
+  - `frontend/index.html`: Nâng version chống cache `?v=20261126d`.
+- **Kết quả kiểm thử & xác minh**:
+  - Kiểm tra HTTP 200 OK với `Referer: https://hiepphucduc.vn/saler/` trên cả 3 cụm tile server; chạy `python tests/test_logic.py` (25/25 PASS) và đồng bộ FTP trực tiếp lên server.
+
+
+## [2026-11-26] - Hoàn Thiện Trọn Bộ Quản Trị CRUD (Nhân Sự, Khách Hàng, Hàng Hóa & Cài Đặt Hệ Thống) Trực Tiếp Trên MySQL
+- **Mục đích / Bối cảnh**: Xây dựng đầy đủ chức năng Thêm / Sửa / Xóa / Khóa / Đặt lại mật khẩu / Phân tuyến cho toàn bộ Quản lý, Nhân viên Sales, Khách hàng đại lý, Danh mục hàng hóa và Cài đặt thông số hệ thống ngay trên giao diện web, lưu trữ trực tiếp 100% vào MySQL mà không cần can thiệp qua phpMyAdmin.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/api.php`:
+    - Bổ sung middleware kiểm tra JWT & phân quyền `checkCallerAuthorization()` và công thức Haversine `calcDistanceMeters()`.
+    - **Quản trị Nhân sự (`USERS`)**: Nâng cấp `getUsers` (hỗ trợ cả tài khoản `INACTIVE`), thêm mới `saveUser` (tạo mới + chỉnh sửa + băm Bcrypt + bảo vệ không hạ quyền/khóa Admin cuối cùng), `resetUserPassword`, `toggleUserStatus`, `deleteUser` (tự động gỡ phân tuyến trong Transaction), và `reassignRoutes`.
+    - **Quản lý Khách hàng (`CUSTOMERS`)**: Bổ sung đầy đủ `createCustomer` (kiểm tra trùng SĐT + cảnh báo gần < 100m), `updateCustomer`, `deleteCustomer`, `approveCustomer`, và `getCustomerVisits`.
+    - **Quản lý Hàng hóa (`PRODUCTS`)**: Chuẩn hóa song ngữ PascalCase/camelCase cho `getProducts` và `saveProduct` (khắc phục lỗi hiển thị trống bảng sản phẩm), bổ sung `deleteProduct`.
+    - **Cài đặt Hệ thống (`SETTINGS`)**: Bổ sung `saveSettings` lưu toàn bộ tham số vận hành vào MySQL (`ON DUPLICATE KEY UPDATE`).
+  - `frontend/js/api.js` & `frontend/js/products.js`: Bổ sung các hàm gọi API mới, đồng bộ tự động `ProductService.syncCatalog()` với dữ liệu MySQL thực tế cho cả Sales Mobile và Manager Desktop.
+  - `frontend/js/permissions.js` & `frontend/js/sales_app.js`: Mở quyền tab `settings` riêng cho `ADMIN` và tải tự động danh mục sản phẩm `ACTIVE` khi khởi động Sales App.
+  - `frontend/js/manager_app.js`:
+    - **Tab Nhân Sự & Phân Tuyến**: Thêm ô tìm kiếm, lọc theo vai trò, Modal Thêm/Sửa thông tin nhân sự (`showEditUserModal`), Modal Cấp lại mật khẩu (`showResetUserPasswordModal`), nút Khóa/Mở khóa, Xóa nhân sự và Lưu phân tuyến vào MySQL.
+    - **Tab Khách Hàng**: Bổ sung nút `🗑️ Xóa` đại lý trực tiếp trên bảng và trong Modal chỉnh sửa.
+    - **Tab Quản Lý Hàng Hóa**: Hiển thị đầy đủ danh mục động từ MySQL, hỗ trợ tự nhập ngành hàng mới (`datalist`) và bổ sung nút `🗑️ Xóa` mặt hàng.
+    - **Tab Cài Đặt Hệ Thống (Mới - Độc quyền ADMIN)**: Giao diện chỉnh sửa trực quan 13 tham số GPS, Dwell Time và Chu kỳ chăm sóc VIP/Thường/Nhỏ.
+  - `frontend/index.html`: Nâng version chống cache `?v=20261126c`.
+  - `tests/test_logic.py`: Bổ sung `test_admin_user_crud_and_settings_protection` (Pass 25/25 unit tests).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` & `node --check`: 25/25 unit tests PASS, 0 lỗi cú pháp JS.
+  - Đồng bộ toàn bộ mã nguồn trực tiếp lên hosting `https://hiepphucduc.vn/saler/`.
+
+
+## [2026-11-26] - Khóa Chặt Công Cụ Kiểm Thử & Chuyển Vai Trò Chỉ Dành Riêng Cho ADMIN (Production Hardening)
+- **Mục đích / Bối cảnh**: Gỡ bỏ toàn bộ nút đăng nhập nhanh Demo 1-Click ngoài màn hình Login, ẩn hoàn toàn thanh công cụ Dev/Role Switcher và vô hiệu hóa tính năng giả lập vị trí (`Test Di Chuyển` / Mock GPS) đối với tài khoản `SALES` và `MANAGER`; chỉ mở thanh công cụ kiểm thử cho duy nhất phiên đăng nhập gốc là `ADMIN`.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/permissions.js`: Giới hạn quyền `SIMULATE_GPS` chỉ còn `[ROLES.ADMIN]`.
+  - `frontend/js/app.js`:
+    - Bổ sung cơ chế `rootUser` và `isAdminSession()` xác thực đối chiếu trực tiếp từ JWT Server để giữ thanh công cụ cho Admin ngay cả khi Admin chuyển sang xem thử góc nhìn `SALES`/`MANAGER` (kèm nút `↩ Quay về ADMIN gốc`).
+    - Ẩn hoàn toàn `#role-switcher-container` và nút `#btn-header-login-switch` ("Đổi vai trò"), đồng thời tự động gọi `GeoService.disableMockGps()` đối với tài khoản `SALES` và `MANAGER`.
+    - Gỡ bỏ cụm nút chọn nhanh Demo trên màn hình `renderAuthWall()` và `showLoginModal()`, xóa mật khẩu gợi ý điền sẵn.
+    - Bổ sung Action Guard chặn `simulateMovement()`, `loginAsUser()`, `onUserSelectChange()`, `showUserSwitcherModal()` nếu không phải phiên gốc `ADMIN`.
+  - `frontend/index.html`: Nâng version chống cache `?v=20261126b`.
+  - `tests/test_logic.py`: Bổ sung kiểm thử quyền `SIMULATE_GPS` độc quyền cho `ADMIN` (Pass 24/24 tests).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` & `node --check`: 24/24 tests PASS, 0 lỗi cú pháp.
+  - Đồng bộ trực tiếp lên server `https://hiepphucduc.vn/saler/`.
+
+
+## [2026-11-26] - Triển Khai JWT Auth Token Ghi Nhớ Đăng Nhập 3 Ngày (72 Giờ)
+- **Mục đích / Bối cảnh**: Bổ sung cơ chế cấp phát mã xác thực bảo mật **JWT Token (HMAC-SHA256)** khi người dùng đăng nhập bằng mật khẩu để tự động duy trì phiên đăng nhập trong đúng **3 ngày (259,200 giây)** kể cả khi đóng trình duyệt hoặc khởi động lại điện thoại, đồng thời tự động thu hồi phiên khi hết hạn mà không cần thêm bảng/cột vào CSDL MySQL.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/config.php`: Định nghĩa `AUTH_TOKEN_TTL_SECONDS = 3 * 86400`, `AUTH_TOKEN_SECRET`, và các hàm ký/kiểm tra chuẩn JWT HS256 (`generateAuthToken()`, `verifyAuthToken()`, `base64UrlEncode()`, `base64UrlDecode()`).
+  - `backend-php/api.php`:
+    - Chuẩn hóa hàm `formatUserPayload()` đồng bộ PascalCase & camelCase cho dữ liệu User.
+    - Action `login`: Cấp phát JWT Token 3 ngày (`token`, `expiresAt`, `ttlDays: 3`) sau khi xác thực mật khẩu Bcrypt.
+    - Action `verifyToken`: Kiểm tra chữ ký HMAC-SHA256, thời hạn `exp` và trạng thái `ACTIVE` của tài khoản trong MySQL.
+    - Action `changePassword`: Tự động cấp lại Token 3 ngày mới sau khi đổi mật khẩu thành công.
+  - `frontend/js/api.js`: Bổ sung lưu trữ `sales_field_auth_token`, đính kèm `authToken` tự động vào payload request, thêm `ApiService.verifyToken()`, và mô phỏng đầy đủ JWT 3 ngày trong `MockDatabase`.
+  - `frontend/js/app.js`:
+    - Thêm quản lý phiên `saveAuthSession()`, `clearAuthSession()`, `scheduleSessionExpiry()`, `bindVisibilitySessionCheck()` và `handleTokenExpired()`.
+    - Tách biệt rõ phiên đăng nhập bằng mật khẩu (`localStorage` kèm JWT Token hạn 3 ngày) với chế độ xem nhanh Demo (`sessionStorage` tạm thời trong tab).
+    - Hiển thị thời lượng hiệu lực còn lại của Token trực quan trên Header (`🔑 Token còn X ngày Yh`).
+  - `tests/test_logic.py`: Bổ sung unit test `test_jwt_token_3_day_persistence_and_expiry` kiểm thử sinh JWT, còn hạn < 3 ngày, hết hạn >= 3 ngày và chống giả mạo chữ ký (Pass 24/24 tests).
+- **Chi tiết kỹ thuật**:
+  - Sử dụng `hash_hmac('sha256', ..., AUTH_TOKEN_SECRET, true)` kết hợp `hash_equals()` chống tấn công timing-attack trên PHP; không cần chạy lệnh SQL migration mới trên hosting.
+  - Tự động kiểm tra hạn Token ở cả 3 thời điểm: khi mở lại app (`App.init()`), bộ hẹn giờ nền (`setTimeout`), và sự kiện mở sáng màn hình di động (`visibilitychange`).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py`: 24/24 unit tests PASS (100%).
+  - Upload đồng bộ trực tiếp lên hosting `https://hiepphucduc.vn/saler/` và kiểm tra thực tế endpoint `login` & `verifyToken` trả về JWT hợp lệ.
+
+
+## [2026-11-23] - Nâng Cấp Hệ Thống Xác Thực Mật Khẩu (Bcrypt Password Authentication & Change Password)
+- **Mục đích / Bối cảnh**: Chuyển đổi từ cơ chế đăng nhập email demo sang hệ thống xác thực mật khẩu bảo mật thực tế cho môi trường Production: thêm cột mật khẩu mã hóa Bcrypt, bảo vệ đăng nhập và hỗ trợ tính năng tự đổi mật khẩu cho người dùng.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/schema.sql`: Bổ sung cột `password VARCHAR(255) DEFAULT NULL` trong bảng `users`.
+  - `backend-php/api.php`: Cập nhật action `login` (xác thực `password_verify`, tự động nâng cấp bcrypt hash cho tài khoản khởi tạo `123456`) và bổ sung action `changePassword` (kiểm tra mật khẩu cũ, mã hóa mật khẩu mới tối thiểu 6 ký tự).
+  - `frontend/js/api.js`: Nâng cấp wrapper `ApiService.login(email, password)` và bổ sung `ApiService.changePassword(userId, oldPassword, newPassword)`, cập nhật xử lý `MockDatabase`.
+  - `frontend/js/app.js`: Cập nhật `handleEmailLogin`, `handleAuthWallLogin` gửi mật khẩu thực tế, thêm modal đổi mật khẩu `showChangePasswordModal()` và hàm xử lý `handleChangePassword()`.
+  - `frontend/index.html`: Thêm nút bấm **🔑 Đổi mật khẩu** (`#btn-header-change-pass`) trên thanh điều khiển người dùng Header.
+  - `tests/test_logic.py`: Bổ sung test case `test_password_authentication_and_change_flow` kiểm thử toàn bộ luồng đăng nhập đúng/sai mật khẩu và đổi mật khẩu (Pass 23/23 tests).
+  - `saler.zip`: Đóng gói cập nhật bản phát hành mới nhất.
+- **Chi tiết kỹ thuật**:
+  - Tự động di chuyển (Auto-migration): Các tài khoản cũ chưa có mật khẩu (`password IS NULL`) sẽ tự động chấp nhận mật khẩu khởi tạo `123456`, khi đăng nhập lần đầu hệ thống tự băm Bcrypt và lưu vào DB.
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py`: 23/23 tests PASS (100%).
+
+
 ## [2026-11-21] - Triển Khai Thực Tế Hệ Thống Lên Tên Miền hiepphucduc.vn (Production cPanel & MySQL)
 - **Mục đích / Bối cảnh**: Hoàn thành cấu hình DNS, chứng chỉ bảo mật AutoSSL, cài đặt WordPress cho trang chủ và triển khai hệ thống quản lý SalerKingpetro lên môi trường sản xuất thực tế trên hosting cPanel.
 - **Các file thay đổi (Affected Files)**:

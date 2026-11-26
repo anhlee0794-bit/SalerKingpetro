@@ -15,6 +15,7 @@ CREATE TABLE `users` (
   `user_id` VARCHAR(50) NOT NULL PRIMARY KEY,
   `name` VARCHAR(100) NOT NULL,
   `email` VARCHAR(150) NOT NULL UNIQUE,
+  `password` VARCHAR(255) DEFAULT NULL COMMENT 'Mật khẩu mã hóa Bcrypt',
   `role` ENUM('ADMIN', 'MANAGER', 'SALES') NOT NULL DEFAULT 'SALES',
   `phone` VARCHAR(20) DEFAULT NULL,
   `team` VARCHAR(100) DEFAULT 'North Team',
@@ -101,7 +102,7 @@ CREATE TABLE `visits` (
   -- 4 Khối dữ liệu Chăm sóc chuyên sâu Kingpetro
   `distributed_qty` INT DEFAULT 0,
   `inventory_qty` INT DEFAULT 0,
-  `reorder_demand` INT DEFAULT 0,
+  `reorder_demand` VARCHAR(255) DEFAULT '',
   `recorded_debt` DECIMAL(15, 2) DEFAULT 0,
   `debt_limit` DECIMAL(15, 2) DEFAULT 0,
   `payment_status` VARCHAR(50) DEFAULT NULL,
@@ -237,6 +238,7 @@ INSERT INTO `settings` (`setting_key`, `setting_value`, `description`) VALUES
 ('CARE_CYCLE_VIP', '3', 'Chu kỳ chăm sóc Khách lớn/VIP (ngày)'),
 ('CARE_CYCLE_NORMAL', '7', 'Chu kỳ chăm sóc Khách thường (ngày)'),
 ('CARE_CYCLE_SMALL', '14', 'Chu kỳ chăm sóc Khách nhỏ (ngày)'),
-('OVERDUE_WARNING_DAYS', '1', 'Số ngày cảnh báo sắp đến hạn (ngày)');
+('OVERDUE_WARNING_DAYS', '1', 'Số ngày cảnh báo sắp đến hạn (ngày)'),
+('GPS_RETENTION_DAYS', '90', 'Số ngày lưu giữ tọa độ GPS thô trước khi tự dọn (ngày)');
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -68,6 +68,12 @@ const UI = {
 
 const App = {
   AUTH_STORAGE_KEY: "sales_field_auth_user",
+  AUTH_SESSION_KEY: "sales_field_auth_session",
+  DEMO_SESSION_KEY: "sales_field_demo_session",
+  SESSION_TTL_MS: 3 * 24 * 60 * 60 * 1000, // 3 ngày (259,200,000 ms)
+  sessionExpiryTimer: null,
+  visibilityWatcherBound: false,
+  authSession: null,
   users: [
     { UserID: "USR-000", Name: "Admin Hệ Thống", Email: "admin@company.com", Role: "ADMIN", Team: "HQ", Phone: "0901234500" },
     { UserID: "USR-001", Name: "Quản Lý Nguyễn", Email: "manager@company.com", Role: "MANAGER", Team: "North Team", Phone: "0901234567" },
@@ -77,20 +83,230 @@ const App = {
   ],
   currentUser: null,
 
+  /**
+   * Chuẩn hóa cấu trúc User đồng nhất (hỗ trợ cả dữ liệu từ PHP API camelCase và PascalCase)
+   */
+  normalizeUser(raw) {
+    if (!raw) return null;
+    const matched = this.users.find(u =>
+      u.UserID === (raw.UserID || raw.userId) ||
+      (raw.Email || raw.email || "").toLowerCase() === u.Email.toLowerCase()
+    );
+    return {
+      UserID: raw.UserID || raw.userId || (matched && matched.UserID) || "",
+      Name: raw.Name || raw.name || (matched && matched.Name) || "Người dùng",
+      Email: raw.Email || raw.email || (matched && matched.Email) || "",
+      Role: String(raw.Role || raw.role || (matched && matched.Role) || "SALES").toUpperCase(),
+      Phone: raw.Phone || raw.phone || (matched && matched.Phone) || "",
+      Team: raw.Team || raw.team || (matched && matched.Team) || ""
+    };
+  },
+
+  /**
+   * Định dạng thời gian hiệu lực còn lại của Token (VD: "Còn 2 ngày 23 giờ")
+   */
+  formatTokenRemaining(expiresAt) {
+    if (!expiresAt) return "";
+    const diffMs = Number(expiresAt) - Date.now();
+    if (diffMs <= 0) return "Đã hết hạn";
+    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    if (days > 0) {
+      return `Token còn ${days} ngày${hours > 0 ? ` ${hours}h` : ""}`;
+    }
+    const mins = Math.max(1, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
+    return totalHours > 0 ? `Token còn ${totalHours}h ${mins}p` : `Token còn ${mins} phút`;
+  },
+
+  /**
+   * Kiểm tra phiên đăng nhập gốc có phải tài khoản ADMIN thật hay không
+   * (Giữ nguyên quyền công cụ kiểm thử ngay cả khi ADMIN đang chuyển sang xem thử góc nhìn SALES/MANAGER)
+   */
+  isAdminSession() {
+    if (!this.authSession) return false;
+    const root = this.authSession.rootUser || this.authSession.user;
+    return Boolean(root && root.Role === "ADMIN");
+  },
+
+  /**
+   * Lưu phiên đăng nhập bằng mật khẩu kèm Token 3 ngày vào LocalStorage
+   */
+  saveAuthSession(user, token, expiresAt) {
+    const normalized = this.normalizeUser(user);
+    const expMs = Number(expiresAt) > Date.now() ? Number(expiresAt) : (Date.now() + this.SESSION_TTL_MS);
+    const sessionData = {
+      rootUser: normalized,
+      user: normalized,
+      token: token || "",
+      expiresAt: expMs,
+      issuedAt: Date.now(),
+      loginMethod: "password"
+    };
+    this.authSession = sessionData;
+    localStorage.setItem(this.AUTH_SESSION_KEY, JSON.stringify(sessionData));
+    localStorage.setItem(this.AUTH_STORAGE_KEY, JSON.stringify(normalized));
+    sessionStorage.removeItem(this.DEMO_SESSION_KEY);
+    if (token) {
+      ApiService.setAuthToken(token);
+    }
+    if (normalized.Role !== "ADMIN" && typeof GeoService !== "undefined" && typeof GeoService.disableMockGps === "function") {
+      GeoService.disableMockGps();
+    }
+    this.scheduleSessionExpiry(expMs);
+    this.bindVisibilitySessionCheck();
+  },
+
+  /**
+   * Xóa toàn bộ Token & phiên đăng nhập
+   */
+  clearAuthSession() {
+    this.authSession = null;
+    if (this.sessionExpiryTimer) {
+      clearTimeout(this.sessionExpiryTimer);
+      this.sessionExpiryTimer = null;
+    }
+    localStorage.removeItem(this.AUTH_SESSION_KEY);
+    localStorage.removeItem(this.AUTH_STORAGE_KEY);
+    sessionStorage.removeItem(this.DEMO_SESSION_KEY);
+    ApiService.clearAuthToken();
+  },
+
+  /**
+   * Đặt bộ đếm tự động thu hồi phiên khi đủ 3 ngày
+   */
+  scheduleSessionExpiry(expiresAt) {
+    if (this.sessionExpiryTimer) {
+      clearTimeout(this.sessionExpiryTimer);
+      this.sessionExpiryTimer = null;
+    }
+    const remainingMs = Number(expiresAt) - Date.now();
+    if (remainingMs <= 0) {
+      this.handleTokenExpired("Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!");
+      return;
+    }
+    const safeTimeout = Math.min(remainingMs, 2147483647);
+    this.sessionExpiryTimer = setTimeout(() => {
+      if (this.authSession && Date.now() >= Number(this.authSession.expiresAt)) {
+        this.handleTokenExpired("Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!");
+      } else if (this.authSession) {
+        this.scheduleSessionExpiry(this.authSession.expiresAt);
+      }
+    }, safeTimeout);
+  },
+
+  /**
+   * Kiểm tra hạn Token ngay khi người dùng mở sáng màn hình điện thoại / quay lại tab
+   */
+  bindVisibilitySessionCheck() {
+    if (this.visibilityWatcherBound || typeof document === "undefined") return;
+    this.visibilityWatcherBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && this.authSession && this.authSession.expiresAt) {
+        if (Date.now() >= Number(this.authSession.expiresAt)) {
+          this.handleTokenExpired("Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!");
+        }
+      }
+    });
+  },
+
+  /**
+   * Xử lý khi Token hết hạn sau 3 ngày hoặc bị thu hồi từ Server
+   */
+  handleTokenExpired(message) {
+    this.clearAuthSession();
+    this.currentUser = null;
+    UI.closeModal();
+    UI.showToast(message || "Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!", "warning");
+    this.renderAuthWall();
+  },
+
+  registerPwaServiceWorker() {
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js?v=20261126g").catch((err) => {
+          console.warn("[PWA] Service Worker registration skipped:", err.message);
+        });
+      });
+    }
+  },
+
   async init() {
     UI.init();
+    this.registerPwaServiceWorker();
+    if (typeof ApiService !== "undefined" && typeof ApiService.bindOnlineAutoSync === "function") {
+      ApiService.bindOnlineAutoSync();
+    }
 
-    // 1. Kiểm tra session đăng nhập trong LocalStorage
-    const savedUserJson = localStorage.getItem(this.AUTH_STORAGE_KEY);
-    if (savedUserJson) {
+    // 1. Kiểm tra Auth Session (Token 3 ngày khi đăng nhập bằng mật khẩu)
+    const savedSessionJson = localStorage.getItem(this.AUTH_SESSION_KEY);
+    if (savedSessionJson) {
       try {
-        const parsed = JSON.parse(savedUserJson);
-        const match = this.users.find(u => u.UserID === parsed.UserID || u.Email === parsed.Email);
-        this.currentUser = match || parsed;
+        const session = JSON.parse(savedSessionJson);
+        if (!session || !session.user || !session.expiresAt || Date.now() >= Number(session.expiresAt)) {
+          this.clearAuthSession();
+          UI.showToast("Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!", "warning");
+          this.renderAuthWall();
+          return;
+        }
+
+        // Còn hạn < 3 ngày -> Đồng bộ & xác thực chữ ký Token với Server (nếu có mạng)
+        if (session.token) {
+          ApiService.setAuthToken(session.token);
+          const verifyRes = await ApiService.verifyToken(session.token);
+          if (verifyRes && verifyRes.tokenExpired) {
+            this.clearAuthSession();
+            UI.showToast(verifyRes.message || "Token đăng nhập đã hết hạn. Vui lòng đăng nhập lại!", "warning");
+            this.renderAuthWall();
+            return;
+          }
+          if (verifyRes && verifyRes.success && verifyRes.user) {
+            const verifiedRoot = this.normalizeUser(verifyRes.user);
+            session.rootUser = verifiedRoot;
+            // Nếu không phải tài khoản gốc ADMIN thì bắt buộc khóa đúng vào user thật, không cho xem vai trò khác
+            if (verifiedRoot.Role !== "ADMIN") {
+              session.user = verifiedRoot;
+            } else {
+              session.user = this.normalizeUser(session.user || verifiedRoot);
+            }
+            localStorage.setItem(this.AUTH_SESSION_KEY, JSON.stringify(session));
+          }
+        }
+
+        if (!session.rootUser) {
+          session.rootUser = this.normalizeUser(session.user);
+        }
+        if (session.rootUser.Role !== "ADMIN") {
+          session.user = session.rootUser;
+          if (typeof GeoService !== "undefined" && typeof GeoService.disableMockGps === "function") {
+            GeoService.disableMockGps();
+          }
+        }
+
+        this.authSession = session;
+        this.currentUser = this.normalizeUser(session.user);
+        this.scheduleSessionExpiry(session.expiresAt);
+        this.bindVisibilitySessionCheck();
+
+        // Nếu là phiên ADMIN, đồng bộ danh sách nhân sự thực tế từ DB cho thanh chuyển góc nhìn
+        if (this.isAdminSession()) {
+          try {
+            const uRes = await ApiService.getUsers();
+            if (uRes && uRes.success && Array.isArray(uRes.users) && uRes.users.length > 0) {
+              this.users = uRes.users.map(x => this.normalizeUser(x));
+            }
+          } catch (err) {
+            // Giữ danh sách mặc định nếu lỗi mạng
+          }
+        }
       } catch (e) {
+        this.clearAuthSession();
         this.currentUser = null;
       }
     } else {
+      // Bắt buộc đăng nhập bằng Email + Mật khẩu (không cho phép vào không mật khẩu)
+      localStorage.removeItem(this.AUTH_STORAGE_KEY);
+      sessionStorage.removeItem(this.DEMO_SESSION_KEY);
       this.currentUser = null;
     }
 
@@ -110,41 +326,45 @@ const App = {
     const bar = document.getElementById("role-switcher-container");
     if (!bar) return;
 
-    const currentRole = (this.currentUser && this.currentUser.Role) || "SALES";
-    const isAdmin = currentRole === "ADMIN";
+    // PHƯƠNG ÁN 2: Ẩn hoàn toàn thanh công cụ Test/Demo đối với SALES và MANAGER
+    if (!this.isAdminSession()) {
+      bar.style.display = "none";
+      bar.innerHTML = "";
+      return;
+    }
+
+    bar.style.display = "block";
+    const rootAdmin = this.authSession.rootUser;
+    const isImpersonating = this.currentUser && rootAdmin && this.currentUser.UserID !== rootAdmin.UserID;
 
     bar.innerHTML = `
       <div class="role-switcher-bar">
         <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; color: #cbd5e1;">
-            ${Icons.render('users', { size: 15 })} Vai trò:
+          <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; color: #fde047;">
+            ${Icons.render('shield-check', { size: 15 })} Công cụ ADMIN (Xem góc nhìn):
           </span>
           <select id="user-role-select" onchange="App.onUserSelectChange(this.value)">
             ${this.users.map(u => `<option value="${u.UserID}" ${this.currentUser && u.UserID === this.currentUser.UserID ? 'selected' : ''}>[${u.Role}] ${u.Name} (${u.Team})</option>`).join("")}
           </select>
+          ${isImpersonating ? `
+            <button onclick="App.onUserSelectChange('${rootAdmin.UserID}')" style="background: #7e22ce; color: #fff; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700;">
+              ↩ Quay về ADMIN gốc
+            </button>
+          ` : ''}
           <button onclick="App.showUserSwitcherModal()" style="display: inline-flex; align-items: center; gap: 0.35rem;" title="Xem chi tiết quyền hạn các vai trò (RBAC)">
             ${Icons.render('shield', { size: 13 })} Bảng Phân Quyền (RBAC)
           </button>
         </div>
 
         <div id="admin-tools-group" class="restricted-admin-tool" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          ${isAdmin ? `
-            <button class="restricted-admin-tool" onclick="App.openSettingsDialog()" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #4338ca;">
-              ${Icons.render('settings', { size: 14 })} Cấu Hình Google Apps Script
-            </button>
-            <button class="restricted-admin-tool" onclick="App.resetMockData()" style="background: #991b1b; display: inline-flex; align-items: center; gap: 0.4rem;">
-              ${Icons.render('rotate-ccw', { size: 14 })} Reset Data
-            </button>
-          ` : `
-            <span style="font-size: 0.72rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 0.3rem;">
-              ${Icons.render('lock', { size: 12 })} Cấu hình & Reset chỉ mở cho ADMIN
-            </span>
-          `}
-          <button class="restricted-admin-tool" onclick="App.simulateMovement()" title="Mô phỏng thay đổi trạng thái GPS di chuyển" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #0891b2;">
-            ${Icons.render('zap', { size: 14 })} Test Di Chuyển
+          <button class="restricted-admin-tool" onclick="App.openSettingsDialog()" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #4338ca;">
+            ${Icons.render('settings', { size: 14 })} Cấu Hình Hệ Thống
           </button>
-          <button onclick="App.showLoginModal()" style="background: #334155; display: inline-flex; align-items: center; gap: 0.35rem;" title="Mở hộp thoại đăng nhập hoặc đổi tài khoản">
-            ${Icons.render('log-in', { size: 13 })} Đăng Nhập
+          <button class="restricted-admin-tool" onclick="App.resetMockData()" style="background: #991b1b; display: inline-flex; align-items: center; gap: 0.4rem;">
+            ${Icons.render('rotate-ccw', { size: 14 })} Reset Data
+          </button>
+          <button class="restricted-admin-tool" onclick="App.simulateMovement()" title="Mô phỏng thay đổi trạng thái GPS di chuyển (Chỉ dành cho ADMIN)" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #0891b2;">
+            ${Icons.render('zap', { size: 14 })} Test Di Chuyển
           </button>
         </div>
       </div>
@@ -152,28 +372,55 @@ const App = {
   },
 
   async onUserSelectChange(userId) {
+    if (!this.isAdminSession()) {
+      return UI.showToast("Từ chối truy cập: Chỉ tài khoản ADMIN mới được phép chuyển góc nhìn kiểm thử!", "danger");
+    }
     const found = this.users.find(u => u.UserID === userId);
     if (found) {
       await this.applyUserRole(found);
-      UI.showToast(`Đã chuyển sang vai trò: ${found.Role} (${found.Name})`, "info");
+      UI.showToast(`Đang xem dưới góc nhìn: ${found.Role} (${found.Name})`, "info");
     }
   },
 
-  async applyUserRole(user) {
+  async applyUserRole(rawUser) {
+    const user = this.normalizeUser(rawUser);
+    if (!user) return;
     this.currentUser = user;
-    localStorage.setItem(this.AUTH_STORAGE_KEY, JSON.stringify(user));
+
+    if (this.authSession && this.authSession.expiresAt && Date.now() < Number(this.authSession.expiresAt)) {
+      this.authSession.user = user;
+      localStorage.setItem(this.AUTH_SESSION_KEY, JSON.stringify(this.authSession));
+      localStorage.setItem(this.AUTH_STORAGE_KEY, JSON.stringify(user));
+    } else {
+      sessionStorage.setItem(this.DEMO_SESSION_KEY, JSON.stringify(user));
+    }
 
     // Update Header
     const nameEl = document.getElementById("current-user-name");
     if (nameEl) nameEl.innerText = user.Name;
 
     const teamEl = document.getElementById("current-user-team");
-    if (teamEl) teamEl.innerText = user.Team || "";
+    if (teamEl) {
+      if (this.authSession && this.authSession.expiresAt) {
+        const expDateStr = new Date(Number(this.authSession.expiresAt)).toLocaleString("vi-VN");
+        const remainLabel = this.formatTokenRemaining(this.authSession.expiresAt);
+        teamEl.innerText = `${user.Team ? user.Team + " • " : ""}🔑 ${remainLabel}`;
+        teamEl.title = `Phiên đăng nhập bằng mật khẩu (JWT Token) hiệu lực đến: ${expDateStr}`;
+      } else {
+        teamEl.innerText = `${user.Team ? user.Team + " • " : ""}Chế độ Demo`;
+        teamEl.title = "Phiên Demo tạm thời (Đăng nhập bằng mật khẩu để lưu phiên 3 ngày)";
+      }
+    }
 
     const roleBadge = document.getElementById("current-user-role-badge");
     if (roleBadge) {
       roleBadge.innerText = user.Role;
       roleBadge.className = `role-pill role-${user.Role.toLowerCase()}`;
+    }
+
+    const switchBtn = document.getElementById("btn-header-login-switch");
+    if (switchBtn) {
+      switchBtn.style.display = this.isAdminSession() ? "inline-flex" : "none";
     }
 
     const btnIcon = document.getElementById("header-login-btn-icon");
@@ -221,9 +468,12 @@ const App = {
   },
 
   /**
-   * RBAC Switcher Modal: Explains role permissions and allows instant switching
+   * RBAC Switcher Modal: Chỉ mở riêng cho tài khoản gốc ADMIN
    */
   showUserSwitcherModal() {
+    if (!this.isAdminSession()) {
+      return UI.showToast("Từ chối truy cập: Công cụ chuyển đổi góc nhìn chỉ dành cho tài khoản ADMIN!", "danger");
+    }
     const rolesData = [
       {
         role: "ADMIN",
@@ -363,40 +613,23 @@ const App = {
         <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
       </div>
 
-      <form onsubmit="event.preventDefault(); App.handleEmailLogin();" style="margin-bottom: 1.25rem;">
+      <form onsubmit="event.preventDefault(); App.handleEmailLogin();" style="margin-bottom: 0.5rem;">
         <div class="form-group" style="margin-bottom: 0.75rem;">
           <label class="form-label">Email tài khoản (*)</label>
-          <input type="email" id="login-email-input" class="form-control" placeholder="admin@company.com" required value="${currentEmail}" />
+          <input type="email" id="login-email-input" class="form-control" placeholder="Nhập email công ty..." required value="${currentEmail}" />
         </div>
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label">Mật khẩu (Demo: nhập bất kỳ)</label>
-          <input type="password" id="login-pass-input" class="form-control" placeholder="••••••••" value="123456" />
+        <div class="form-group" style="margin-bottom: 0.75rem;">
+          <label class="form-label">Mật khẩu (*)</label>
+          <input type="password" id="login-pass-input" class="form-control" placeholder="Nhập mật khẩu..." required />
+        </div>
+        <div style="font-size: 0.76rem; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 0.45rem 0.65rem; border-radius: 6px; margin-bottom: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+          ${Icons.render('shield-check', { size: 14, color: '#0284c7' })}
+          <span>Tự động cấp <strong>Auth Token</strong> lưu đăng nhập trong <strong>3 ngày</strong>.</span>
         </div>
         <button type="submit" class="btn-action-large btn-meet-customer" style="padding: 0.75rem; font-size: 0.95rem; width: 100%;">
           ${Icons.render('log-in', { size: 16 })} ĐĂNG NHẬP
         </button>
       </form>
-
-      <div style="border-top: 1px solid var(--border); padding-top: 1rem;">
-        <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
-          ${Icons.render('zap', { size: 14, color: '#f59e0b' })} HOẶC CHỌN NHANH TÀI KHOẢN MẪU:
-        </div>
-        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-          ${this.users.map(u => {
-            const roleColor = u.Role === 'ADMIN' ? '#7e22ce' : (u.Role === 'MANAGER' ? '#b45309' : '#0369a1');
-            const roleBg = u.Role === 'ADMIN' ? '#f3e8ff' : (u.Role === 'MANAGER' ? '#fef3c7' : '#e0f2fe');
-            return `
-              <div onclick="App.loginAsUser('${u.UserID}')" style="display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.15s ease;" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-                <div>
-                  <strong style="font-size: 0.88rem; color: var(--text-main);">${u.Name}</strong>
-                  <div style="font-size: 0.75rem; color: var(--text-muted);">${u.Email} • ${u.Team}</div>
-                </div>
-                <span class="role-pill" style="color: ${roleColor}; background: ${roleBg}; font-size: 0.7rem;">${u.Role}</span>
-              </div>
-            `;
-          }).join("")}
-        </div>
-      </div>
     `;
 
     UI.showModal(content);
@@ -404,26 +637,23 @@ const App = {
 
   async handleEmailLogin() {
     const emailInput = document.getElementById("login-email-input");
+    const passInput = document.getElementById("login-pass-input");
     const email = (emailInput && emailInput.value.trim()) || "";
+    const password = (passInput && passInput.value.trim()) || "";
     if (!email) return UI.showToast("Vui lòng nhập email!", "danger");
 
-    UI.showLoading("Đang xác thực thông tin tài khoản...");
-    const res = await ApiService.login(email);
+    UI.showLoading("Đang xác thực & cấp phát Token đăng nhập...");
+    const res = await ApiService.login(email, password);
     UI.hideLoading();
 
     if (res && res.success && res.user) {
+      const normalizedUser = this.normalizeUser(res.user);
+      this.saveAuthSession(normalizedUser, res.token, res.expiresAt);
       UI.closeModal();
-      UI.showToast(`Đăng nhập thành công! Xin chào ${res.user.Name} (${res.user.Role})`, "success");
-      await this.applyUserRole(res.user);
+      UI.showToast(`Đăng nhập thành công! Xin chào ${normalizedUser.Name} (Lưu phiên 3 ngày)`, "success");
+      await this.applyUserRole(normalizedUser);
     } else {
-      const matched = this.users.find(u => u.Email.toLowerCase() === email.toLowerCase());
-      if (matched) {
-        UI.closeModal();
-        UI.showToast(`Đăng nhập thành công! Xin chào ${matched.Name} (${matched.Role})`, "success");
-        await this.applyUserRole(matched);
-      } else {
-        UI.showToast((res && res.message) || "Không tìm thấy người dùng có email này trong hệ thống!", "danger");
-      }
+      UI.showToast((res && res.message) || "Đăng nhập không thành công. Vui lòng kiểm tra lại email và mật khẩu!", "danger");
     }
   },
 
@@ -439,11 +669,6 @@ const App = {
 
     if (!authContainer) return;
     authContainer.style.display = "flex";
-
-    // Phân loại tài khoản Demo theo 3 vai trò: ADMIN, MANAGER, SALES
-    const adminUsers = this.users.filter(u => u.Role === "ADMIN");
-    const managerUsers = this.users.filter(u => u.Role === "MANAGER");
-    const salesUsers = this.users.filter(u => u.Role === "SALES");
 
     authContainer.innerHTML = `
       <div class="auth-wall-screen">
@@ -465,71 +690,23 @@ const App = {
           </div>
 
           <!-- Email / Password Login Form -->
-          <form onsubmit="event.preventDefault(); App.handleAuthWallLogin();" style="margin-bottom: 1.5rem;">
+          <form onsubmit="event.preventDefault(); App.handleAuthWallLogin();" style="margin-bottom: 0.25rem;">
             <div class="form-group" style="margin-bottom: 0.85rem;">
-              <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Email Tài Khoản</label>
-              <input type="email" id="auth-wall-email" class="form-control" placeholder="admin@company.com" required value="admin@company.com" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
+              <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Email Tài Khoản (*)</label>
+              <input type="email" id="auth-wall-email" class="form-control" placeholder="Nhập email được cấp..." required autocomplete="username" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
             </div>
-            <div class="form-group" style="margin-bottom: 1.15rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                <label class="form-label" style="font-size: 0.82rem; font-weight: 600; margin-bottom: 0;">Mật Khẩu</label>
-                <span style="font-size: 0.72rem; color: var(--text-muted);">(Demo: bất kỳ)</span>
-              </div>
-              <input type="password" id="auth-wall-pass" class="form-control" placeholder="••••••••" value="123456" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
+            <div class="form-group" style="margin-bottom: 0.85rem;">
+              <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Mật Khẩu (*)</label>
+              <input type="password" id="auth-wall-pass" class="form-control" placeholder="Nhập mật khẩu..." required autocomplete="current-password" style="padding: 0.65rem 0.85rem; font-size: 0.9rem;" />
+            </div>
+            <div style="font-size: 0.76rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1.1rem; display: flex; align-items: center; gap: 0.45rem;">
+              ${Icons.render('shield-check', { size: 15, color: '#0284c7' })}
+              <span>Phiên đăng nhập bảo mật được tự động lưu trên thiết bị trong <strong>3 ngày</strong>.</span>
             </div>
             <button type="submit" class="btn-action-large btn-meet-customer" style="width: 100%; padding: 0.75rem; font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-              ${Icons.render('log-in', { size: 16 })} ĐĂNG NHẬP VÀO HỆ THỐNG
+              ${Icons.render('log-in', { size: 16 })} ĐĂNG NHẬP HỆ THỐNG
             </button>
           </form>
-
-          <!-- Quick Demo Role Selection (ADMIN / MANAGER / SALES) -->
-          <div style="border-top: 1px solid var(--border); padding-top: 1.25rem;">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
-              <span>⚡</span> CHỌN NHANH TÀI KHOẢN THEO VAI TRÒ (DEMO):
-            </div>
-
-            <!-- ADMIN Group -->
-            <div style="margin-bottom: 0.75rem;">
-              <div style="font-size: 0.73rem; font-weight: 700; color: #7e22ce; margin-bottom: 0.3rem;">★ VAI TRÒ ADMIN (Toàn Quyền Toàn Hệ Thống & Cấu Hình)</div>
-              ${adminUsers.map(u => `
-                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; border-left: 3px solid #7e22ce;">
-                  <div>
-                    <div class="name">${u.Name}</div>
-                    <div class="desc">${u.Email} • ${u.Team}</div>
-                  </div>
-                  <span class="role-badge role-admin">${u.Role}</span>
-                </button>
-              `).join("")}
-            </div>
-
-            <!-- MANAGER Group -->
-            <div style="margin-bottom: 0.75rem;">
-              <div style="font-size: 0.73rem; font-weight: 700; color: #b45309; margin-bottom: 0.3rem;">★ VAI TRÒ MANAGER (Giám Sát Vùng, Duyệt Đổi Dữ Liệu & Quản Lý Sản Phẩm)</div>
-              ${managerUsers.map(u => `
-                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; border-left: 3px solid #f59e0b;">
-                  <div>
-                    <div class="name">${u.Name}</div>
-                    <div class="desc">${u.Email} • ${u.Team}</div>
-                  </div>
-                  <span class="role-badge role-manager">${u.Role}</span>
-                </button>
-              `).join("")}
-            </div>
-
-            <!-- SALES Group -->
-            <div>
-              <div style="font-size: 0.73rem; font-weight: 700; color: #0369a1; margin-bottom: 0.3rem;">★ VAI TRÒ SALES (Đi Tuyến Thị Trường, Đề Xuất Sửa Đổi KH, Đơn Hàng)</div>
-              ${salesUsers.map(u => `
-                <button type="button" class="demo-account-btn" onclick="App.loginAsUser('${u.UserID}')" style="width: 100%; margin-bottom: 0.35rem; border-left: 3px solid #0ea5e9;">
-                  <div>
-                    <div class="name">${u.Name}</div>
-                    <div class="desc">${u.Email} • Tuyến phụ trách</div>
-                  </div>
-                  <span class="role-badge role-sales">${u.Role}</span>
-                </button>
-              `).join("")}
-            </div>
-          </div>
         </div>
       </div>
     `;
@@ -542,62 +719,70 @@ const App = {
     const mainWrapper = document.querySelector(".main-wrapper");
 
     if (authContainer) authContainer.style.display = "none";
-    if (roleSwitcher) roleSwitcher.style.display = "block";
+    if (roleSwitcher) roleSwitcher.style.display = this.isAdminSession() ? "block" : "none";
     if (header) header.style.display = "block";
     if (mainWrapper) mainWrapper.style.display = "block";
   },
 
   async handleAuthWallLogin() {
     const emailInput = document.getElementById("auth-wall-email");
+    const passInput = document.getElementById("auth-wall-pass");
     const email = (emailInput && emailInput.value.trim()) || "";
+    const password = (passInput && passInput.value.trim()) || "";
     if (!email) return UI.showToast("Vui lòng nhập email!", "danger");
 
-    UI.showLoading("Đang xác thực thông tin tài khoản...");
-    const res = await ApiService.login(email);
+    UI.showLoading("Đang xác thực & cấp phát Token đăng nhập...");
+    const res = await ApiService.login(email, password);
     UI.hideLoading();
 
-    let targetUser = null;
     if (res && res.success && res.user) {
-      targetUser = res.user;
-    } else {
-      const matched = this.users.find(u => u.Email.toLowerCase() === email.toLowerCase());
-      if (matched) {
-        targetUser = matched;
+      const normalizedUser = this.normalizeUser(res.user);
+      this.saveAuthSession(normalizedUser, res.token, res.expiresAt);
+      if (this.isAdminSession()) {
+        try {
+          const uRes = await ApiService.getUsers();
+          if (uRes && uRes.success && Array.isArray(uRes.users) && uRes.users.length > 0) {
+            this.users = uRes.users.map(x => this.normalizeUser(x));
+          }
+        } catch (err) {}
       }
-    }
-
-    if (targetUser) {
-      UI.showToast(`Đăng nhập thành công! Xin chào ${targetUser.Name} (${targetUser.Role})`, "success");
+      UI.showToast(`Đăng nhập thành công! Xin chào ${normalizedUser.Name} (Lưu phiên 3 ngày)`, "success");
       this.showAuthenticatedApp();
-      await this.applyUserRole(targetUser);
+      await this.applyUserRole(normalizedUser);
     } else {
-      UI.showToast("Không tìm thấy người dùng có email này trong hệ thống!", "danger");
+      UI.showToast((res && res.message) || "Đăng nhập không thành công. Vui lòng kiểm tra lại email và mật khẩu!", "danger");
     }
   },
 
   async loginAsUser(userId) {
+    if (!this.isAdminSession()) {
+      return UI.showToast("Từ chối truy cập: Chỉ tài khoản ADMIN mới có quyền chuyển đổi vai trò kiểm thử!", "danger");
+    }
     const u = this.users.find(x => x.UserID === userId);
     if (u) {
       UI.closeModal();
       this.showAuthenticatedApp();
-      UI.showToast(`Đã đăng nhập vai trò: ${u.Role} (${u.Name})`, "success");
+      UI.showToast(`Đang xem dưới góc nhìn: ${u.Role} (${u.Name})`, "info");
       await this.applyUserRole(u);
     }
   },
 
   logout() {
-    localStorage.removeItem(this.AUTH_STORAGE_KEY);
+    this.clearAuthSession();
     this.currentUser = null;
-    UI.showToast("Đã đăng xuất khỏi tài khoản!", "info");
+    if (typeof GeoService !== "undefined" && typeof GeoService.disableMockGps === "function") {
+      GeoService.disableMockGps();
+    }
+    UI.showToast("Đã đăng xuất và xóa Token khỏi thiết bị!", "info");
     this.renderAuthWall();
   },
 
   /**
-   * Action Guard: Core settings dialog only accessible to ADMIN
+   * Action Guard: Core settings dialog only accessible to root ADMIN session
    */
   openSettingsDialog() {
-    if (!PermissionService.guard(this.currentUser, "MANAGE_SYSTEM_SETTINGS", "Chỉ tài khoản ADMIN mới có quyền truy cập cấu hình hệ thống!")) {
-      return;
+    if (!this.isAdminSession()) {
+      return UI.showToast("Chỉ tài khoản gốc ADMIN mới có quyền truy cập cấu hình hệ thống!", "danger");
     }
 
     const currentUrl = ApiService.getGasUrl();
@@ -645,6 +830,9 @@ const App = {
   },
 
   simulateMovement() {
+    if (!this.isAdminSession()) {
+      return UI.showToast("Từ chối truy cập: Tính năng giả lập GPS kiểm thử chỉ dành riêng cho ADMIN!", "danger");
+    }
     let targetLat = 10.7685;
     let targetLng = 106.6892;
     let targetName = "Đại lý Minh Phát";
@@ -729,14 +917,88 @@ const App = {
    * Action Guard: Reset database only accessible to ADMIN
    */
   resetMockData() {
-    if (!PermissionService.guard(this.currentUser, "RESET_DATABASE", "Chỉ tài khoản ADMIN mới có quyền đặt lại dữ liệu toàn hệ thống!")) {
-      return;
+    if (!this.isAdminSession()) {
+      return UI.showToast("Chỉ tài khoản gốc ADMIN mới có quyền đặt lại dữ liệu toàn hệ thống!", "danger");
     }
 
     if (confirm("Đặt lại toàn bộ dữ liệu mẫu ban đầu?")) {
       MockDatabase.resetDB();
       UI.showToast("Đã thiết lập lại dữ liệu mẫu!", "success");
       this.applyUserRole(this.currentUser);
+    }
+  },
+
+  /**
+   * Modal đổi mật khẩu tài khoản hiện tại
+   */
+  showChangePasswordModal() {
+    if (!this.currentUser) return UI.showToast("Vui lòng đăng nhập trước!", "warning");
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: white; width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+            ${Icons.render('key', { size: 18, color: '#fff' })}
+          </div>
+          <div>
+            <h3 style="font-weight: 800; font-size: 1.15rem; color: var(--text-main); margin: 0;">Đổi Mật Khẩu</h3>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">${this.currentUser.Name} (${this.currentUser.Email})</div>
+          </div>
+        </div>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <form onsubmit="event.preventDefault(); App.handleChangePassword();">
+        <div class="form-group" style="margin-bottom: 0.85rem;">
+          <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Mật khẩu hiện tại (*)</label>
+          <input type="password" id="change-pass-old" class="form-control" placeholder="Nhập mật khẩu hiện tại" required style="padding: 0.65rem 0.85rem;" />
+        </div>
+        <div class="form-group" style="margin-bottom: 0.85rem;">
+          <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Mật khẩu mới (*)</label>
+          <input type="password" id="change-pass-new" class="form-control" placeholder="Tối thiểu 6 ký tự" minlength="6" required style="padding: 0.65rem 0.85rem;" />
+        </div>
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Xác nhận mật khẩu mới (*)</label>
+          <input type="password" id="change-pass-confirm" class="form-control" placeholder="Nhập lại mật khẩu mới" minlength="6" required style="padding: 0.65rem 0.85rem;" />
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" onclick="UI.closeModal()" class="btn-action-inline" style="padding: 0.6rem 1.1rem;">Hủy</button>
+          <button type="submit" class="btn-action-inline" style="background: var(--primary); color: #fff; padding: 0.6rem 1.25rem; font-weight: 700; border: none; border-radius: 6px;">
+            LƯU MẬT KHẨU MỚI
+          </button>
+        </div>
+      </form>
+    `;
+    UI.showModal(content);
+  },
+
+  async handleChangePassword() {
+    const oldPass = document.getElementById("change-pass-old").value.trim();
+    const newPass = document.getElementById("change-pass-new").value.trim();
+    const confirmPass = document.getElementById("change-pass-confirm").value.trim();
+
+    if (!oldPass || !newPass) {
+      return UI.showToast("Vui lòng điền đầy đủ thông tin!", "danger");
+    }
+    if (newPass.length < 6) {
+      return UI.showToast("Mật khẩu mới phải có tối thiểu 6 ký tự!", "danger");
+    }
+    if (newPass !== confirmPass) {
+      return UI.showToast("Mật khẩu xác nhận không trùng khớp!", "danger");
+    }
+
+    UI.showLoading("Đang cập nhật mật khẩu...");
+    const res = await ApiService.changePassword(this.currentUser.UserID, oldPass, newPass);
+    UI.hideLoading();
+
+    if (res && res.success) {
+      if (res.token && this.currentUser) {
+        this.saveAuthSession(this.currentUser, res.token, res.expiresAt);
+        await this.applyUserRole(this.currentUser);
+      }
+      UI.closeModal();
+      UI.showToast(res.message || "Đổi mật khẩu thành công! Đã làm mới Token 3 ngày.", "success");
+    } else {
+      UI.showToast((res && res.message) || "Không thể đổi mật khẩu. Vui lòng kiểm tra lại mật khẩu cũ!", "danger");
     }
   }
 };

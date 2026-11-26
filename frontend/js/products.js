@@ -29,7 +29,28 @@ const ProductService = {
     return this.UNITS.find(u => u.name.toLowerCase() === (name || "").toLowerCase()) || this.UNITS[0];
   },
 
+  liveCatalog: null,
+
+  syncCatalog(list) {
+    if (Array.isArray(list) && list.length > 0) {
+      this.liveCatalog = list.map(p => ({
+        id: p.id || p.ProductID,
+        name: p.name || p.ProductName,
+        category: p.category || p.CategoryName || p.CategoryID,
+        defaultUnit: p.defaultUnit || p.Unit || "Thùng",
+        ratio: Number(p.ratio) || 24,
+        baseUnit: p.baseUnit || "Chai",
+        price: Number(p.price !== undefined ? p.price : (p.BasePrice || 0)),
+        status: p.status || p.Status || "ACTIVE",
+        spec: p.spec || p.Packaging || ""
+      }));
+    }
+  },
+
   getCatalog() {
+    if (Array.isArray(this.liveCatalog) && this.liveCatalog.length > 0) {
+      return this.liveCatalog;
+    }
     if (typeof MockDatabase !== "undefined") {
       try {
         const db = MockDatabase.getDB();

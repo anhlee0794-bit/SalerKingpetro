@@ -1,0 +1,13 @@
+# Bảo vệ thư mục API Backend SalerKingpetro
+Options -Indexes
+
+# Chặn truy cập trực tiếp qua trình duyệt vào các file cấu hình nhạy cảm & SQL
+<FilesMatch "^(config\.php|sync\.php|schema\.sql|README\.md|\.env.*|\.git.*)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

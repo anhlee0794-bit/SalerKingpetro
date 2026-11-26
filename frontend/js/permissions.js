@@ -39,7 +39,7 @@ const PERMISSIONS = {
   FIELD_CHECKIN_CHECKOUT: [ROLES.SALES, ROLES.ADMIN],
   UPDATE_CARE_DETAILS: [ROLES.SALES, ROLES.ADMIN],
   CREATE_PROSPECT: [ROLES.SALES, ROLES.MANAGER, ROLES.ADMIN],
-  SIMULATE_GPS: [ROLES.SALES, ROLES.MANAGER, ROLES.ADMIN],
+  SIMULATE_GPS: [ROLES.ADMIN],
 
   // Workspace Navigations
   ACCESS_MANAGER_WORKSPACE: [ROLES.ADMIN, ROLES.MANAGER],
@@ -54,7 +54,8 @@ const TAB_PERMISSIONS = {
   approvals: [ROLES.ADMIN, ROLES.MANAGER], // Tab Phê Duyệt Thay Đổi
   products: [ROLES.ADMIN, ROLES.MANAGER],  // Tab Quản Lý Danh Mục Hàng Hóa
   reports: [ROLES.ADMIN, ROLES.MANAGER],
-  users: [ROLES.ADMIN] // Dedicated personnel & route allocation tab
+  users: [ROLES.ADMIN],    // Dedicated personnel & route allocation tab
+  settings: [ROLES.ADMIN]  // System parameters & operational config tab
 };
 
 const ROLE_METADATA = {

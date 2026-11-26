@@ -1,0 +1,17 @@
+# Cấu hình thư mục Frontend PWA SalerKingpetro
+Options -Indexes
+
+<IfModule mod_mime.c>
+    AddType application/manifest+json .json .webmanifest
+    AddType image/svg+xml .svg
+</IfModule>
+
+<FilesMatch "^(\.env.*|\.git.*)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

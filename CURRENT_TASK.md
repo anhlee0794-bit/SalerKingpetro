@@ -1,5 +1,58 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Gia Cố Ổn Định Production Toàn Diện: Đồng Bộ API MySQL, Hàng Đợi Offline 4G, PWA & Bảo Mật Máy Chủ (Hoàn Thành 2026-11-26)
+- [x] **🔴 Ưu tiên 1 — Khớp 100% API Giao diện & MySQL (`backend-php/api.php`)**:
+  - [x] Hoàn thiện `getManagerDashboard` trả đầy đủ `stats`, danh sách vị trí `sales` (`lastGps`) và `careAlerts` (Quá hạn, Sắp hạn, Công nợ cao, Tồn kho thấp).
+  - [x] Bổ sung `getSalesTimeline` (Tab 3) và `getPerformanceReports` (Tab 7 hỗ trợ lọc Hôm nay / Tuần / Tháng / Toàn bộ).
+  - [x] Sửa `checkoutCareVisit` đọc gói `careData` 4 khối (Hàng hóa, Tồn kho + Đơn vị tồn, Công nợ, Đơn hàng mới, Kết quả & Ghi chú), bổ sung `checkoutVisit` & `cancelVisit`, sửa `requestCustomerUpdate` & `resolveCustomerUpdateRequest`.
+  - [x] Đồng nhất chữ Hoa/Thường `SessionID`/`VisitID` và khôi phục cả `activeVisit` đang gặp khách từ MySQL khi F5 tải lại trang.
+- [x] **🟠 Ưu tiên 2 — Ổn định hiện trường sóng yếu & Tối ưu di động (`api.js`, `sales_app.js`, PWA)**:
+  - [x] Tắt hoàn toàn cơ chế nhảy về dữ liệu mẫu giả (`MockDatabase`) khi chạy thật; tích hợp Hàng đợi Ngoại tuyến (`Offline Queue`) tự lưu vào máy khi mất sóng 4G và tự đồng bộ FIFO khi có mạng lại.
+  - [x] Tích hợp PWA (`manifest.json`, `icon.svg`, `sw.js`, meta mobile) hỗ trợ cài đặt ra màn hình chính điện thoại (`Add to Home Screen`) như ứng dụng độc lập.
+- [x] **🟡 Ưu tiên 3 — Bảo mật máy chủ & Vận hành dài hạn (`api.php`, `config.php`, `.htaccess`)**:
+  - [x] Bắt buộc xác thực chữ ký JWT Token (`requireAuth`) và cô lập dữ liệu theo vai trò trên 100% API đọc/ghi.
+  - [x] Tắt `SYNC_TO_GOOGLE_SHEETS = false` mặc định và thêm `.htaccess` chặn `403 Forbidden` truy cập trực tiếp `config.php`, `sync.php`, `schema.sql` và liệt kê thư mục `/api/`.
+  - [x] Tích hợp cơ chế tự động dọn rác bảng `gps_logs` cũ quá 90 ngày (giữ nguyên vĩnh viễn lịch sử chăm sóc/đơn hàng trong `visits`), kèm nút dọn thủ công trong Tab Cài Đặt của Admin.
+- [x] **Kiểm thử & Triển khai**: Pass **29/29** unit tests (`tests/test_logic.py`), kiểm tra cú pháp JS và đồng bộ nguyên tử FTP + kiểm thử E2E trực tiếp trên `https://hiepphucduc.vn/saler/`.
+
+
+## Tích Hợp Free Geocoding & Mini-Map Picker Kéo Thả Ghim (Hoàn Thành 2026-11-26)
+- [x] **1. Free Geocoding & Reverse Geocoding (`geo.js`)**: Tích hợp kép OpenStreetMap Nominatim + dự phòng Photon (0đ, không cần API Key) tìm tọa độ từ địa chỉ và lấy tên đường ngược từ vị trí ghim.
+- [x] **2. Mini-Map Picker Tương Tác (`manager_app.js` & `sales_app.js`)**: Gắn bản đồ nhỏ kéo thả ghim (hỗ trợ cả lớp Đường phố & Ảnh vệ tinh) vào tất cả các form Thêm mới / Chỉnh sửa đại lý của Quản lý và Sales.
+- [x] **3. Kiểm thử & Triển khai**: Pass 26/26 unit tests và đồng bộ nguyên tử FTP lên `hiepphucduc.vn`.
+
+
+## Sửa Lỗi Bản Đồ Đòi API Key Trên Domain Thực Tế (Hoàn Thành 2026-11-26)
+- [x] Thay thế tile layer CartoDB (bị dính watermark thương mại `API KEY REQUIRED` trên `hiepphucduc.vn`) bằng bộ 4 lớp bản đồ miễn phí 100% (Đường phố Việt Nam OSM, Giao diện Sáng HOT, Esri Street và Ảnh Vệ Tinh Esri Satellite) kèm nút chuyển lớp góc phải bản đồ.
+
+
+## Hoàn Thiện Full CRUD Nhân Sự, Khách Hàng, Hàng Hóa & Cài Đặt Hệ Thống Trên MySQL (Hoàn Thành 2026-11-26)
+- [x] **1. Quản trị Nhân sự toàn diện (`ADMIN`)**: Thêm mới, Sửa hồ sơ (Quản lý/Sales/Admin), Đặt lại mật khẩu Bcrypt, Khóa/Mở khóa, Xóa tài khoản và Phân tuyến khách hàng lưu thẳng xuống MySQL.
+- [x] **2. Quản lý Khách hàng & Lịch sử (`ADMIN` / `MANAGER`)**: Hoàn thiện REST API PHP Thêm/Sửa/Xóa/Duyệt đại lý và xem lịch sử ghé thăm từ MySQL.
+- [x] **3. Quản lý Danh mục Hàng hóa (`ADMIN` / `MANAGER`)**: Đồng bộ song ngữ dữ liệu sản phẩm MySQL, hỗ trợ tự gõ phân loại mới và xóa sản phẩm nhập nhầm.
+- [x] **4. Trang Cài đặt Thông số Hệ thống (`ADMIN`)**: Giao diện chỉnh sửa trực tiếp 13 tham số GPS, Dwell Time và Chu kỳ chăm sóc khách hàng lưu vào bảng `settings`.
+- [x] **5. Kiểm thử & Triển khai**: Pass 25/25 unit tests và đồng bộ trực tiếp lên hosting `hiepphucduc.vn`.
+
+
+## Khóa Chặt Công Cụ Test & Chuyển Góc Nhìn Độc Quyền Cho ADMIN (Hoàn Thành 2026-11-26)
+- [x] **1. Màn hình Login chuẩn Production**: Xóa cụm nút chọn nhanh Demo và gợi ý mật khẩu điền sẵn, bắt buộc đăng nhập bằng Email + Mật khẩu.
+- [x] **2. Cô lập quyền Công cụ Test cho ADMIN (`isAdminSession`)**: Ẩn hoàn toàn thanh Dev Toolbar, nút Đổi vai trò và khóa cứng Mock GPS đối với `SALES` và `MANAGER`; giữ nguyên công cụ xem thử góc nhìn cho phiên gốc `ADMIN`.
+- [x] **3. Kiểm thử & Triển khai**: Pass 24/24 unit tests và đồng bộ trực tiếp lên hosting `hiepphucduc.vn`.
+
+
+## Bổ Sung JWT Auth Token Lưu Phiên Đăng Nhập 3 Ngày (Hoàn Thành 2026-11-26)
+- [x] **1. Backend JWT Engine (`backend-php/config.php` & `api.php`)**: Sinh và xác thực JWT Token (HMAC-SHA256) thời hạn 3 ngày (`259,200s`), hỗ trợ endpoint `verifyToken` và làm mới Token khi `changePassword`.
+- [x] **2. Frontend Session & Expiry Manager (`frontend/js/api.js` & `app.js`)**: Lưu trữ Token 3 ngày khi đăng nhập bằng mật khẩu, tự động kiểm tra hạn khi mở app / mở khóa màn hình (`visibilitychange`), hiển thị thời hạn còn lại trên Header.
+- [x] **3. Kiểm thử & Triển khai**: Bổ sung unit test JWT 3 ngày (`24/24 PASS`) và đồng bộ trực tiếp lên server `hiepphucduc.vn`.
+
+
+## Nâng Cấp Hệ Thống Xác Thực Mật Khẩu & Đổi Mật Khẩu (Hoàn Thành 2026-11-23)
+- [x] **1. CSDL MySQL**: Thêm cột `password` mã hóa Bcrypt vào bảng `users`.
+- [x] **2. Backend API**: Xử lý `login` kiểm tra mật khẩu bằng `password_verify()` và tự động hash nâng cấp tài khoản cũ; bổ sung endpoint `changePassword`.
+- [x] **3. Frontend UI**: Cập nhật form đăng nhập gửi mật khẩu thực tế, thêm modal đổi mật khẩu và nút **🔑 Đổi mật khẩu** trên Header.
+- [x] **4. Kiểm thử**: Chạy 23/23 tests PASS trong `tests/test_logic.py`.
+
+
 ## Triển Khai Thực Tế Lên Hosting cPanel & Tên Miền hiepphucduc.vn (Hoàn Thành 2026-11-21)
 - [x] **1. Cấu hình DNS & Hosting**: Trỏ bản ghi A về IP `139.99.50.190`, thêm tên miền `hiepphucduc.vn` vào cPanel.
 - [x] **2. Cài đặt SSL Bảo Mật**: Kích hoạt chứng chỉ AutoSSL xanh cho `hiepphucduc.vn` để hỗ trợ GPS di động.

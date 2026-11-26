@@ -468,5 +468,347 @@ const GeoService = {
     this.prevPosition = null;
     this.currentActivity = "UNKNOWN";
     console.log("[GeoService] Stopped GPS tracking.");
+  },
+
+  // =========================================================================
+  // FREE GEOCODING (NOMINATIM OSM + PHOTON FALLBACK) & MINI-MAP PICKER
+  // =========================================================================
+  _pickerMap: null,
+  _pickerMarker: null,
+  _lastSearchResults: [],
+
+  /**
+   * Tìm tọa độ Kinh độ / Vĩ độ miễn phí từ địa chỉ văn bản (ưu tiên Việt Nam)
+   * Kết hợp OpenStreetMap Nominatim + tự động dự phòng Photon Komoot (0đ, không cần API Key)
+   */
+  async geocodeAddress(query) {
+    const cleanQuery = (query || "").trim();
+    if (!cleanQuery) return [];
+
+    // 1. Ưu tiên Nominatim OpenStreetMap (hỗ trợ chi tiết phường/quận/tỉnh Việt Nam)
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=vn&addressdetails=1&limit=5&accept-language=vi&q=${encodeURIComponent(cleanQuery)}`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data.map(item => ({
+            displayName: item.display_name,
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon),
+            source: "OSM"
+          })).filter(x => !isNaN(x.lat) && !isNaN(x.lng));
+        }
+      }
+    } catch (e) {
+      console.warn("[GeoService.geocodeAddress] Nominatim fallback to Photon:", e.message);
+    }
+
+    // 2. Dự phòng Photon API (tìm kiếm mờ / viết tắt rất nhạy)
+    try {
+      const controller2 = new AbortController();
+      const timer2 = setTimeout(() => controller2.abort(), 5000);
+      const qVietnam = cleanQuery.toLowerCase().includes("việt nam") ? cleanQuery : `${cleanQuery}, Việt Nam`;
+      const url2 = `https://photon.komoot.io/api/?q=${encodeURIComponent(qVietnam)}&limit=5&lat=10.7760&lon=106.6950`;
+      const res2 = await fetch(url2, { signal: controller2.signal });
+      clearTimeout(timer2);
+      if (res2.ok) {
+        const json2 = await res2.json();
+        const features = (json2 && json2.features) || [];
+        return features.map(f => {
+          const p = f.properties || {};
+          const coords = (f.geometry && f.geometry.coordinates) || [];
+          const parts = [p.name, p.housenumber, p.street, p.district || p.suburb, p.city || p.state, p.country].filter(Boolean);
+          return {
+            displayName: parts.join(", ") || cleanQuery,
+            lat: parseFloat(coords[1]),
+            lng: parseFloat(coords[0]),
+            source: "Photon"
+          };
+        }).filter(x => !isNaN(x.lat) && !isNaN(x.lng));
+      }
+    } catch (e2) {
+      console.warn("[GeoService.geocodeAddress] Photon error:", e2.message);
+    }
+
+    return [];
+  },
+
+  /**
+   * Tra ngược tên đường / địa chỉ từ tọa độ ghim trên bản đồ (Reverse Geocoding miễn phí)
+   */
+  async reverseGeocode(lat, lng) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4500);
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=vi`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.display_name) {
+          return data.display_name;
+        }
+      }
+    } catch (e) {
+      // Bỏ qua nếu mạng chậm
+    }
+    return "";
+  },
+
+  /**
+   * Khởi tạo Bản đồ nhỏ tương tác (Mini-Map Picker) ngay trong Modal Thêm/Sửa đại lý
+   * Hỗ trợ: Bấm trực tiếp lên bản đồ, kéo thả ghim (Drag & Drop), chuyển lớp Vệ tinh, đồng bộ 2 chiều với ô tọa độ
+   */
+  initMiniMapPicker(options = {}) {
+    if (typeof L === "undefined") return null;
+
+    const {
+      containerId = "cust-minimap-picker",
+      latInputId,
+      lngInputId,
+      addressInputId,
+      initialLat = 10.7760,
+      initialLng = 106.6950,
+      onChange = null
+    } = options;
+
+    const mapEl = document.getElementById(containerId);
+    if (!mapEl) return null;
+
+    if (this._pickerMap) {
+      try {
+        this._pickerMap.remove();
+      } catch (e) {}
+      this._pickerMap = null;
+      this._pickerMarker = null;
+    }
+    if (mapEl._leaflet_id) {
+      mapEl._leaflet_id = null;
+    }
+
+    const startLat = (!isNaN(Number(initialLat)) && Number(initialLat) !== 0) ? Number(initialLat) : 10.7760;
+    const startLng = (!isNaN(Number(initialLng)) && Number(initialLng) !== 0) ? Number(initialLng) : 106.6950;
+
+    const map = L.map(containerId, { zoomControl: true }).setView([startLat, startLng], 15);
+    this._pickerMap = map;
+
+    const osmLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
+      maxZoom: 19
+    });
+    const esriStreet = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "&copy; Esri",
+      maxZoom: 19
+    });
+    const esriSat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "&copy; Esri Satellite",
+      maxZoom: 19
+    });
+
+    let fallbackUsed = false;
+    osmLayer.on("tileerror", () => {
+      if (!fallbackUsed && map.hasLayer(osmLayer)) {
+        fallbackUsed = true;
+        map.removeLayer(osmLayer);
+        esriStreet.addTo(map);
+      }
+    });
+
+    osmLayer.addTo(map);
+    L.control.layers({
+      "🗺️ Đường phố": osmLayer,
+      "🛰️ Vệ tinh": esriSat,
+      "🧭 Esri Street": esriStreet
+    }, null, { position: "topright" }).addTo(map);
+
+    const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+    marker.bindTooltip("Kéo thả ghim hoặc bấm trên bản đồ", { direction: "top", offset: [0, -12] });
+    this._pickerMarker = marker;
+
+    const syncCoordsToInputs = async (lat, lng, autoFillEmptyAddress = true) => {
+      const fixedLat = Number(lat).toFixed(6);
+      const fixedLng = Number(lng).toFixed(6);
+      const latEl = latInputId ? document.getElementById(latInputId) : null;
+      const lngEl = lngInputId ? document.getElementById(lngInputId) : null;
+      if (latEl) latEl.value = fixedLat;
+      if (lngEl) lngEl.value = fixedLng;
+
+      if (typeof onChange === "function") {
+        onChange(Number(fixedLat), Number(fixedLng));
+      }
+
+      if (autoFillEmptyAddress && addressInputId) {
+        const addrEl = document.getElementById(addressInputId);
+        if (addrEl && !addrEl.value.trim()) {
+          const detected = await this.reverseGeocode(fixedLat, fixedLng);
+          if (detected && !addrEl.value.trim()) {
+            addrEl.value = detected;
+          }
+        }
+      }
+    };
+
+    // Bấm bất kỳ vị trí nào trên bản đồ để đặt ghim
+    map.on("click", (ev) => {
+      const { lat, lng } = ev.latlng;
+      marker.setLatLng([lat, lng]);
+      syncCoordsToInputs(lat, lng, true);
+    });
+
+    // Kéo thả ghim xong tự cập nhật tọa độ
+    marker.on("dragend", () => {
+      const pos = marker.getLatLng();
+      map.panTo(pos);
+      syncCoordsToInputs(pos.lat, pos.lng, true);
+    });
+
+    // Nhập tay số kinh độ/vĩ độ tự nhảy ghim trên bản đồ
+    const onManualInputChange = () => {
+      const latEl = latInputId ? document.getElementById(latInputId) : null;
+      const lngEl = lngInputId ? document.getElementById(lngInputId) : null;
+      const vLat = parseFloat(latEl && latEl.value);
+      const vLng = parseFloat(lngEl && lngEl.value);
+      if (!isNaN(vLat) && !isNaN(vLng) && Math.abs(vLat) <= 90 && Math.abs(vLng) <= 180) {
+        marker.setLatLng([vLat, vLng]);
+        map.setView([vLat, vLng], map.getZoom());
+      }
+    };
+    if (latInputId && document.getElementById(latInputId)) {
+      document.getElementById(latInputId).addEventListener("change", onManualInputChange);
+    }
+    if (lngInputId && document.getElementById(lngInputId)) {
+      document.getElementById(lngInputId).addEventListener("change", onManualInputChange);
+    }
+
+    // Sửa lỗi khung bản đồ bị xám khi mở trong hộp thoại Modal có hiệu ứng chuyển động
+    setTimeout(() => { map.invalidateSize(); }, 180);
+    setTimeout(() => { map.invalidateSize(); }, 450);
+
+    return map;
+  },
+
+  /**
+   * Di chuyển ghim trên Mini-Map Picker tới tọa độ mới (dùng khi bấm Lấy GPS hiện tại hoặc chọn gợi ý địa chỉ)
+   */
+  setMiniMapPosition(lat, lng, zoom = 17) {
+    const nLat = Number(lat);
+    const nLng = Number(lng);
+    if (isNaN(nLat) || isNaN(nLng)) return;
+    if (this._pickerMarker) {
+      this._pickerMarker.setLatLng([nLat, nLng]);
+    }
+    if (this._pickerMap) {
+      this._pickerMap.setView([nLat, nLng], zoom);
+      this._pickerMap.invalidateSize();
+    }
+  },
+
+  /**
+   * Tìm kiếm địa chỉ từ ô nhập liệu, tự động nhảy ghim đến kết quả đầu tiên và hiển thị danh sách gợi ý để chọn chính xác
+   */
+  async searchAddressForPicker({ addressInputId, latInputId, lngInputId, resultsBoxId, onCoordsSelected = null }) {
+    const addrEl = document.getElementById(addressInputId);
+    const resultsBox = document.getElementById(resultsBoxId);
+    const query = (addrEl && addrEl.value.trim()) || "";
+
+    if (!query) {
+      if (typeof UI !== "undefined" && UI.showToast) {
+        UI.showToast("Vui lòng gõ tên đường hoặc địa chỉ đại lý vào ô Địa chỉ trước khi bấm Tìm!", "warning");
+      }
+      if (addrEl) addrEl.focus();
+      return;
+    }
+
+    if (resultsBox) {
+      resultsBox.style.display = "block";
+      resultsBox.innerHTML = `<div style="padding: 0.55rem 0.75rem; font-size: 0.8rem; color: #0369a1;">🔍 Đang dò tìm tọa độ cho "${query}"...</div>`;
+    }
+
+    const results = await this.geocodeAddress(query);
+    this._lastSearchResults = results;
+
+    if (!results || results.length === 0) {
+      if (resultsBox) {
+        resultsBox.innerHTML = `<div style="padding: 0.55rem 0.75rem; font-size: 0.8rem; color: #b91c1c;">Không tìm thấy địa chỉ khớp chính xác. Bạn có thể gõ ngắn gọn hơn (VD: tên đường + quận/tỉnh) hoặc bấm chọn trực tiếp trên bản đồ bên dưới!</div>`;
+      }
+      return;
+    }
+
+    // Áp dụng ngay kết quả sát nhất đầu tiên
+    const best = results[0];
+    const latEl = latInputId ? document.getElementById(latInputId) : null;
+    const lngEl = lngInputId ? document.getElementById(lngInputId) : null;
+    if (latEl) latEl.value = best.lat.toFixed(6);
+    if (lngEl) lngEl.value = best.lng.toFixed(6);
+    this.setMiniMapPosition(best.lat, best.lng, 17);
+    if (typeof onCoordsSelected === "function") {
+      onCoordsSelected(best.lat, best.lng, best.displayName);
+    }
+
+    // Hiển thị danh sách kết quả để người dùng bấm chọn nếu có nhiều địa điểm trùng tên
+    if (resultsBox) {
+      resultsBox.innerHTML = `
+        <div style="font-size: 0.73rem; font-weight: 700; color: var(--text-muted); padding: 0.35rem 0.65rem; background: var(--bg-subtle); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+          <span>🎯 Đã ghim kết quả #1 — Bấm chọn nếu muốn đổi vị trí khác:</span>
+          <button type="button" onclick="document.getElementById('${resultsBoxId}').style.display='none'" style="border:none;background:none;cursor:pointer;color:var(--text-muted);font-size:0.95rem;">&times;</button>
+        </div>
+        ${results.map((r, idx) => `
+          <div
+            onclick="GeoService.selectSearchResult(${idx}, '${addressInputId}', '${latInputId}', '${lngInputId}', '${resultsBoxId}')"
+            style="padding: 0.48rem 0.65rem; font-size: 0.8rem; cursor: pointer; border-bottom: 1px solid var(--border); background: ${idx === 0 ? '#f0f9ff' : 'var(--bg-card)'}; color: var(--text-main);"
+            onmouseover="this.style.background='#e0f2fe'"
+            onmouseout="this.style.background='${idx === 0 ? '#f0f9ff' : 'var(--bg-card)'}'"
+          >
+            <strong>#${idx + 1}:</strong> ${r.displayName}
+            <span style="font-size: 0.72rem; color: #0284c7; margin-left: 4px;">(${r.lat.toFixed(5)}, ${r.lng.toFixed(5)})</span>
+          </div>
+        `).join("")}
+      `;
+    }
+  },
+
+  selectSearchResult(idx, addressInputId, latInputId, lngInputId, resultsBoxId) {
+    const item = (this._lastSearchResults || [])[idx];
+    if (!item) return;
+    const addrEl = addressInputId ? document.getElementById(addressInputId) : null;
+    const latEl = latInputId ? document.getElementById(latInputId) : null;
+    const lngEl = lngInputId ? document.getElementById(lngInputId) : null;
+    const boxEl = resultsBoxId ? document.getElementById(resultsBoxId) : null;
+
+    if (addrEl) addrEl.value = item.displayName;
+    if (latEl) latEl.value = item.lat.toFixed(6);
+    if (lngEl) lngEl.value = item.lng.toFixed(6);
+    this.setMiniMapPosition(item.lat, item.lng, 17);
+    if (boxEl) boxEl.style.display = "none";
+
+    if (typeof UI !== "undefined" && UI.showToast) {
+      UI.showToast(`Đã ghim tọa độ (${item.lat.toFixed(5)}, ${item.lng.toFixed(5)})`, "success");
+    }
+  },
+
+  /**
+   * Nút "Lấy địa chỉ từ vị trí ghim" (Reverse Geocoding thủ công theo yêu cầu người dùng)
+   */
+  async fillAddressFromPin(addressInputId, latInputId, lngInputId) {
+    const latEl = document.getElementById(latInputId);
+    const lngEl = document.getElementById(lngInputId);
+    const addrEl = document.getElementById(addressInputId);
+    const lat = parseFloat(latEl && latEl.value);
+    const lng = parseFloat(lngEl && lngEl.value);
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const detected = await this.reverseGeocode(lat, lng);
+    if (detected && addrEl) {
+      addrEl.value = detected;
+      if (typeof UI !== "undefined" && UI.showToast) {
+        UI.showToast("Đã tự động điền tên đường từ vị trí ghim!", "success");
+      }
+    } else if (typeof UI !== "undefined" && UI.showToast) {
+      UI.showToast("Không tra cứu được tên đường chi tiết tại điểm này.", "warning");
+    }
   }
 };

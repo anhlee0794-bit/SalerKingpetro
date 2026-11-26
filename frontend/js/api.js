@@ -8,6 +8,26 @@ const ApiService = {
   // Config
   gasUrlKey: "sales_field_gas_url",
   useMockKey: "sales_field_use_mock",
+  authTokenKey: "sales_field_auth_token",
+  offlineQueueKey: "sales_field_offline_queue",
+  customersCachePrefix: "sales_field_cache_customers_",
+  settingsCacheKey: "sales_field_cache_settings",
+  sessionCachePrefix: "sales_field_cache_session_",
+  TOKEN_TTL_MS: 3 * 24 * 60 * 60 * 1000, // 3 ngày (72 giờ)
+  FETCH_TIMEOUT_MS: 12000,
+  _isFlushingQueue: false,
+  _onlineWatcherBound: false,
+
+  QUEUEABLE_FIELD_ACTIONS: [
+    "startWork",
+    "endWork",
+    "recordGps",
+    "checkinVisit",
+    "cancelVisit",
+    "checkoutVisit",
+    "checkoutCareVisit",
+    "requestCustomerUpdate"
+  ],
 
   getGasUrl() {
     return localStorage.getItem(this.gasUrlKey) || "https://hiepphucduc.vn/saler/api/api.php";
@@ -17,8 +37,23 @@ const ApiService = {
     localStorage.setItem(this.gasUrlKey, url);
   },
 
+  getAuthToken() {
+    return localStorage.getItem(this.authTokenKey) || "";
+  },
+
+  setAuthToken(token) {
+    if (token) {
+      localStorage.setItem(this.authTokenKey, token);
+    } else {
+      localStorage.removeItem(this.authTokenKey);
+    }
+  },
+
+  clearAuthToken() {
+    localStorage.removeItem(this.authTokenKey);
+  },
+
   isMockMode() {
-    // If no GAS URL configured, default to Mock mode for instantaneous testing
     const url = this.getGasUrl();
     if (!url) return true;
     return localStorage.getItem(this.useMockKey) === "true";
@@ -28,40 +63,370 @@ const ApiService = {
     localStorage.setItem(this.useMockKey, isMock ? "true" : "false");
   },
 
+  // ----------------------------------------------------
+  // OFFLINE QUEUE & REAL-DATA CACHE (NO FAKE MOCK FALLBACK)
+  // ----------------------------------------------------
+  getOfflineQueue() {
+    try {
+      const raw = localStorage.getItem(this.offlineQueueKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  saveOfflineQueue(queue) {
+    try {
+      const trimmed = Array.isArray(queue) ? queue.slice(-300) : [];
+      localStorage.setItem(this.offlineQueueKey, JSON.stringify(trimmed));
+      if (typeof SalesApp !== "undefined" && typeof SalesApp.updateOfflineBanner === "function") {
+        SalesApp.updateOfflineBanner();
+      }
+    } catch (e) {
+      console.warn("[ApiService] Failed saving offline queue:", e);
+    }
+  },
+
+  getOfflineQueueCount() {
+    return this.getOfflineQueue().length;
+  },
+
+  bindOnlineAutoSync() {
+    if (this._onlineWatcherBound || typeof window === "undefined") return;
+    this._onlineWatcherBound = true;
+
+    window.addEventListener("online", () => {
+      if (typeof SalesApp !== "undefined" && typeof SalesApp.updateOfflineBanner === "function") {
+        SalesApp.updateOfflineBanner();
+      }
+      this.flushOfflineQueue();
+    });
+
+    window.addEventListener("offline", () => {
+      if (typeof SalesApp !== "undefined" && typeof SalesApp.updateOfflineBanner === "function") {
+        SalesApp.updateOfflineBanner();
+      }
+    });
+  },
+
+  _cacheReadResponse(action, params, data) {
+    if (!data || !data.success) return;
+    try {
+      if (action === "getSettings" && data.settings) {
+        localStorage.setItem(this.settingsCacheKey, JSON.stringify(data));
+      } else if (action === "getCustomers" && Array.isArray(data.customers)) {
+        const key = this.customersCachePrefix + (params.salesId || params.role || "ALL");
+        localStorage.setItem(key, JSON.stringify(data));
+      } else if (action === "getActiveSession" && params.salesId) {
+        localStorage.setItem(this.sessionCachePrefix + params.salesId, JSON.stringify(data));
+      }
+    } catch (e) {
+      // Ignore quota warnings
+    }
+  },
+
+  _readCachedResponse(action, params) {
+    try {
+      if (action === "getSettings") {
+        const raw = localStorage.getItem(this.settingsCacheKey);
+        return raw ? { ...JSON.parse(raw), fromOfflineCache: true } : null;
+      }
+      if (action === "getCustomers") {
+        const key = this.customersCachePrefix + (params.salesId || params.role || "ALL");
+        const raw = localStorage.getItem(key);
+        return raw ? { ...JSON.parse(raw), fromOfflineCache: true } : null;
+      }
+      if (action === "getActiveSession" && params.salesId) {
+        const raw = localStorage.getItem(this.sessionCachePrefix + params.salesId);
+        return raw ? { ...JSON.parse(raw), fromOfflineCache: true } : null;
+      }
+    } catch (e) {
+      return null;
+    }
+    return null;
+  },
+
+  _enqueueFieldMutation(action, params) {
+    const nowIso = new Date().toISOString();
+    const nowSql = nowIso.replace("T", " ").substring(0, 19);
+    const queue = this.getOfflineQueue();
+
+    const itemParams = { ...params };
+    delete itemParams.authToken;
+    itemParams.clientTimestamp = itemParams.clientTimestamp || nowIso;
+
+    let syntheticResponse = {
+      success: true,
+      queuedOffline: true,
+      message: "Mất sóng mạng 4G: Thao tác đã lưu vào Hàng đợi trên máy và sẽ tự đồng bộ khi có mạng lại!"
+    };
+
+    if (action === "startWork") {
+      const tempSessionId = "SES-OFFLINE-" + Date.now();
+      itemParams.tempSessionId = tempSessionId;
+      const sessObj = {
+        SessionID: tempSessionId,
+        sessionId: tempSessionId,
+        SalesID: params.salesId,
+        Date: nowSql.substring(0, 10),
+        CheckInTime: nowSql,
+        CheckInLatitude: Number(params.lat || 0),
+        CheckInLongitude: Number(params.lng || 0),
+        Status: "WORKING"
+      };
+      localStorage.setItem(this.sessionCachePrefix + params.salesId, JSON.stringify({
+        success: true,
+        session: sessObj,
+        activeVisit: null
+      }));
+      syntheticResponse = { ...syntheticResponse, sessionId: tempSessionId, SessionID: tempSessionId, session: sessObj };
+    } else if (action === "checkinVisit") {
+      const tempVisitId = "VIS-OFFLINE-" + Date.now();
+      itemParams.tempVisitId = tempVisitId;
+      const visitObj = {
+        VisitID: tempVisitId,
+        visitId: tempVisitId,
+        SalesID: params.salesId,
+        CustomerID: params.customerId,
+        SessionID: params.sessionId || "",
+        CheckInTime: nowSql,
+        CheckInLatitude: Number(params.lat || 0),
+        CheckInLongitude: Number(params.lng || 0),
+        Status: "IN_PROGRESS"
+      };
+      const sessRaw = localStorage.getItem(this.sessionCachePrefix + params.salesId);
+      if (sessRaw) {
+        try {
+          const parsedSess = JSON.parse(sessRaw);
+          parsedSess.activeVisit = visitObj;
+          localStorage.setItem(this.sessionCachePrefix + params.salesId, JSON.stringify(parsedSess));
+        } catch (e) {}
+      }
+      syntheticResponse = { ...syntheticResponse, visitId: tempVisitId, VisitID: tempVisitId, visit: visitObj };
+    } else if (action === "checkoutCareVisit" || action === "checkoutVisit" || action === "cancelVisit") {
+      const sessRaw = localStorage.getItem(this.sessionCachePrefix + params.salesId);
+      if (sessRaw) {
+        try {
+          const parsedSess = JSON.parse(sessRaw);
+          parsedSess.activeVisit = null;
+          localStorage.setItem(this.sessionCachePrefix + params.salesId, JSON.stringify(parsedSess));
+        } catch (e) {}
+      }
+      syntheticResponse = { ...syntheticResponse, duration: 1 };
+    } else if (action === "endWork") {
+      localStorage.setItem(this.sessionCachePrefix + params.salesId, JSON.stringify({
+        success: true,
+        session: null,
+        activeVisit: null
+      }));
+      syntheticResponse = { ...syntheticResponse, duration: 1, workDuration: 1 };
+    }
+
+    queue.push({
+      queueId: "Q-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      action,
+      params: itemParams,
+      queuedAt: Date.now()
+    });
+    this.saveOfflineQueue(queue);
+    return syntheticResponse;
+  },
+
+  async flushOfflineQueue() {
+    if (this.isMockMode() || this._isFlushingQueue) return { synced: 0, remaining: 0 };
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return { synced: 0, remaining: this.getOfflineQueueCount() };
+    }
+
+    const queue = this.getOfflineQueue();
+    if (queue.length === 0) return { synced: 0, remaining: 0 };
+
+    const token = this.getAuthToken();
+    const gasUrl = this.getGasUrl();
+    if (!token || !gasUrl) return { synced: 0, remaining: queue.length };
+
+    this._isFlushingQueue = true;
+    const sessionIdMap = {};
+    const visitIdMap = {};
+    const remaining = [];
+    let syncedCount = 0;
+
+    try {
+      for (let i = 0; i < queue.length; i++) {
+        const entry = queue[i];
+        const payloadParams = { ...entry.params, authToken: token };
+
+        if (payloadParams.sessionId && sessionIdMap[payloadParams.sessionId]) {
+          payloadParams.sessionId = sessionIdMap[payloadParams.sessionId];
+        }
+        if (payloadParams.visitId && visitIdMap[payloadParams.visitId]) {
+          payloadParams.visitId = visitIdMap[payloadParams.visitId];
+        }
+
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), this.FETCH_TIMEOUT_MS);
+          const res = await fetch(gasUrl, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({ action: entry.action, ...payloadParams }),
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          const data = await res.json();
+
+          if (data && data.tokenExpired) {
+            // Giữ nguyên hàng đợi để sau khi đăng nhập lại vẫn đồng bộ tiếp
+            remaining.push(...queue.slice(i));
+            break;
+          }
+
+          if (data && data.success) {
+            syncedCount++;
+            if (entry.action === "startWork" && entry.params.tempSessionId && (data.SessionID || data.sessionId)) {
+              const realSid = data.SessionID || data.sessionId;
+              sessionIdMap[entry.params.tempSessionId] = realSid;
+              if (typeof SalesApp !== "undefined" && SalesApp.activeSession && SalesApp.activeSession.SessionID === entry.params.tempSessionId) {
+                SalesApp.activeSession.SessionID = realSid;
+              }
+            }
+            if (entry.action === "checkinVisit" && entry.params.tempVisitId && (data.VisitID || data.visitId)) {
+              const realVid = data.VisitID || data.visitId;
+              visitIdMap[entry.params.tempVisitId] = realVid;
+              if (typeof SalesApp !== "undefined" && SalesApp.activeVisit && SalesApp.activeVisit.VisitID === entry.params.tempVisitId) {
+                SalesApp.activeVisit.VisitID = realVid;
+              }
+            }
+          }
+          // Nếu lỗi logic nghiệp vụ (success: false nhưng server đã phản hồi HTTP 200), bỏ qua không lặp vô hạn
+        } catch (netErr) {
+          // Vẫn mất mạng -> dừng và giữ nguyên các phần tử còn lại
+          remaining.push(...queue.slice(i));
+          break;
+        }
+      }
+
+      this.saveOfflineQueue(remaining);
+
+      if (syncedCount > 0) {
+        if (typeof UI !== "undefined" && typeof UI.showToast === "function") {
+          UI.showToast(`Đã tự động đồng bộ ${syncedCount} dữ liệu ngoại tuyến lên máy chủ!`, "success");
+        }
+        if (typeof SalesApp !== "undefined" && SalesApp.currentUser) {
+          SalesApp.loadCustomers().then(() => SalesApp.render()).catch(() => {});
+        }
+      }
+      return { synced: syncedCount, remaining: remaining.length };
+    } finally {
+      this._isFlushingQueue = false;
+    }
+  },
+
   /**
    * Main request dispatcher
    */
   async request(action, params = {}) {
+    const token = this.getAuthToken();
+    const enrichedParams = (token && !params.authToken) ? { authToken: token, ...params } : params;
+
     if (this.isMockMode()) {
-      return MockDatabase.handleAction(action, params);
+      return MockDatabase.handleAction(action, enrichedParams);
     }
 
     const gasUrl = this.getGasUrl();
     if (!gasUrl) {
-      return MockDatabase.handleAction(action, params);
+      return MockDatabase.handleAction(action, enrichedParams);
+    }
+
+    this.bindOnlineAutoSync();
+
+    // Nếu có hàng đợi ngoại tuyến tồn đọng và đang có sóng, đẩy bù lên Server trước
+    if (!this._isFlushingQueue && action !== "login" && action !== "verifyToken" && this.getOfflineQueueCount() > 0) {
+      if (typeof navigator === "undefined" || navigator.onLine !== false) {
+        await this.flushOfflineQueue();
+      }
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.FETCH_TIMEOUT_MS);
       const response = await fetch(gasUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ action: action, ...params })
+        body: JSON.stringify({ action: action, ...enrichedParams }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+
       const data = await response.json();
+      if (data && data.tokenExpired && action !== "login" && action !== "verifyToken") {
+        if (typeof App !== "undefined" && typeof App.handleTokenExpired === "function") {
+          App.handleTokenExpired(data.message);
+        }
+      }
+
+      // Lưu đệm dữ liệu thật từ MySQL phục vụ Sales xem khi rớt sóng 4G
+      this._cacheReadResponse(action, params, data);
       return data;
     } catch (err) {
-      console.warn(`[ApiService] Network error calling GAS API for action ${action}, falling back to local handler:`, err);
-      return MockDatabase.handleAction(action, params);
+      console.warn(`[ApiService] Network error calling Production API for action ${action}:`, err);
+
+      // 1. Nếu là thao tác hiện trường của Sales -> Lưu vào Hàng đợi Offline (KHÔNG nhảy sang dữ liệu giả MockDatabase!)
+      if (this.QUEUEABLE_FIELD_ACTIONS.includes(action)) {
+        return this._enqueueFieldMutation(action, params);
+      }
+
+      // 2. Nếu là thao tác đọc tuyến khách hàng / cấu hình / phiên hiện tại -> Đọc từ bản đệm MySQL gần nhất (nếu có)
+      const cached = this._readCachedResponse(action, params);
+      if (cached) {
+        return cached;
+      }
+
+      // 3. Các thao tác Quản trị / Đăng nhập khi rớt mạng -> Báo lỗi mạng rõ ràng
+      return {
+        success: false,
+        offline: true,
+        message: "Không thể kết nối máy chủ (Mất sóng 4G/WiFi). Vui lòng kiểm tra kết nối mạng và thử lại!"
+      };
     }
   },
 
   // High-level API wrappers
-  async login(email) {
-    return this.request("login", { email });
+  async login(email, password) {
+    return this.request("login", { email, password });
   },
 
-  async getUsers(role) {
-    return this.request("getUsers", { role });
+  async verifyToken(token) {
+    return this.request("verifyToken", { token: token || this.getAuthToken() });
+  },
+
+  async changePassword(userId, oldPassword, newPassword) {
+    return this.request("changePassword", { userId, oldPassword, newPassword });
+  },
+
+  async getUsers(role, filterRole, includeInactive = false) {
+    return this.request("getUsers", { role, filterRole, includeInactive });
+  },
+
+  async saveUser(userData) {
+    return this.request("saveUser", { userData });
+  },
+
+  async resetUserPassword(userId, newPassword) {
+    return this.request("resetUserPassword", { userId, newPassword });
+  },
+
+  async toggleUserStatus(userId) {
+    return this.request("toggleUserStatus", { userId });
+  },
+
+  async deleteUser(userId) {
+    return this.request("deleteUser", { userId });
+  },
+
+  async reassignRoutes(salesId, customerIds) {
+    return this.request("reassignRoutes", { salesId, customerIds });
   },
 
   async getActiveSession(salesId) {
@@ -92,6 +457,10 @@ const ApiService = {
     return this.request("updateCustomer", { customerId, data, role });
   },
 
+  async deleteCustomer(customerId, role) {
+    return this.request("deleteCustomer", { customerId, role });
+  },
+
   async approveCustomer(customerId, approved, approverId) {
     return this.request("approveCustomer", { customerId, approved, approverId });
   },
@@ -102,6 +471,10 @@ const ApiService = {
 
   async checkinVisit(salesId, customerId, sessionId, lat, lng, accuracy) {
     return this.request("checkinVisit", { salesId, customerId, sessionId, lat, lng, accuracy });
+  },
+
+  async cancelVisit(visitId, salesId) {
+    return this.request("cancelVisit", { visitId, salesId });
   },
 
   async checkoutVisit(visitId, salesId, result, note) {
@@ -128,6 +501,14 @@ const ApiService = {
     return this.request("getSettings");
   },
 
+  async saveSettings(settings) {
+    return this.request("saveSettings", { settings });
+  },
+
+  async cleanupGpsLogs(retentionDays = 90) {
+    return this.request("cleanupGpsLogs", { retentionDays });
+  },
+
   // Customer Info Approval Flow
   async requestCustomerUpdate(salesId, customerId, customerName, oldData, newData, reason) {
     return this.request("requestCustomerUpdate", { salesId, customerId, customerName, oldData, newData, reason });
@@ -143,15 +524,26 @@ const ApiService = {
 
   // Product Catalog Management
   async getProducts(category, status) {
-    return this.request("getProducts", { category, status });
+    const res = await this.request("getProducts", { category, status });
+    if (res && res.success) {
+      const list = res.products || res.data || [];
+      if (typeof ProductService !== "undefined" && typeof ProductService.syncCatalog === "function") {
+        ProductService.syncCatalog(list);
+      }
+    }
+    return res;
   },
 
   async saveProduct(productData, role) {
-    return this.request("saveProduct", { productData, role });
+    return this.request("saveProduct", { productData, role: role || "MANAGER" });
   },
 
   async toggleProductStatus(productId, role) {
-    return this.request("toggleProductStatus", { productId, role });
+    return this.request("toggleProductStatus", { productId, role: role || "MANAGER" });
+  },
+
+  async deleteProduct(productId, role) {
+    return this.request("deleteProduct", { productId, role: role || "MANAGER" });
   }
 };
 
@@ -503,62 +895,265 @@ const MockDatabase = {
       }
 
       case "getProducts": {
-        let prods = db.PRODUCTS || [];
+        let prods = (db.PRODUCTS || []).map(p => ({
+          ProductID: p.ProductID || p.id,
+          ProductName: p.ProductName || p.name,
+          CategoryID: p.CategoryID || p.category,
+          CategoryName: p.CategoryName || p.category,
+          Unit: p.Unit || p.defaultUnit || "Thùng",
+          Packaging: p.Packaging !== undefined ? p.Packaging : (p.spec || ""),
+          BasePrice: Number(p.BasePrice !== undefined ? p.BasePrice : (p.price || 0)),
+          Status: p.Status || p.status || "ACTIVE",
+          id: p.id || p.ProductID,
+          name: p.name || p.ProductName,
+          category: p.category || p.CategoryName || p.CategoryID,
+          defaultUnit: p.defaultUnit || p.Unit || "Thùng",
+          ratio: Number(p.ratio || 24),
+          baseUnit: p.baseUnit || "Chai",
+          price: Number(p.price !== undefined ? p.price : (p.BasePrice || 0)),
+          status: p.status || p.Status || "ACTIVE",
+          spec: p.spec !== undefined ? p.spec : (p.Packaging || "")
+        }));
         if (params.category && params.category !== "ALL") {
-          prods = prods.filter(p => p.category === params.category);
+          prods = prods.filter(p => p.CategoryID === params.category || p.category === params.category);
         }
         if (params.status && params.status !== "ALL") {
-          prods = prods.filter(p => p.status === params.status);
+          prods = prods.filter(p => p.Status === params.status);
         }
-        return { success: true, products: prods, categories: db.PRODUCT_CATEGORIES || [] };
+        return { success: true, products: prods, data: prods, categories: db.PRODUCT_CATEGORIES || [] };
       }
 
       case "saveProduct": {
-        if (params.role !== "ADMIN" && params.role !== "MANAGER") {
-          return { success: false, message: "Chỉ Quản lý hoặc Admin mới có quyền chỉnh sửa danh mục hàng hóa!" };
-        }
         const pData = params.productData || {};
         let prods = db.PRODUCTS || [];
-        const existingIdx = prods.findIndex(p => p.id === pData.id);
+        const targetId = pData.ProductID || pData.id || ("PRD-" + String(prods.length + 1).padStart(3, "0"));
+        const targetName = pData.ProductName || pData.name || "";
+        const targetCat = pData.CategoryName || pData.CategoryID || pData.category || "Dầu Nhờn & Mỡ Bôi Trơn";
+        const targetUnit = pData.Unit || pData.defaultUnit || "Thùng";
+        const ratioMap = { "Thùng": 24, "Xô": 18, "Bình": 4, "Phuy": 200, "Chai": 1 };
+        const targetRatio = Number(pData.ratio) || ratioMap[targetUnit] || 1;
+        const targetPrice = Number(pData.BasePrice !== undefined ? pData.BasePrice : pData.price) || 0;
+        const targetStatus = pData.Status || pData.status || "ACTIVE";
+        const targetSpec = pData.Packaging !== undefined ? pData.Packaging : (pData.spec || "");
+
+        const existingIdx = prods.findIndex(p => (p.id || p.ProductID) === targetId);
+        const record = {
+          id: targetId,
+          ProductID: targetId,
+          name: targetName,
+          ProductName: targetName,
+          category: targetCat,
+          CategoryID: targetCat,
+          CategoryName: targetCat,
+          defaultUnit: targetUnit,
+          Unit: targetUnit,
+          ratio: targetRatio,
+          baseUnit: "Chai",
+          price: targetPrice,
+          BasePrice: targetPrice,
+          status: targetStatus,
+          Status: targetStatus,
+          spec: targetSpec,
+          Packaging: targetSpec
+        };
 
         if (existingIdx >= 0) {
-          prods[existingIdx] = { ...prods[existingIdx], ...pData };
+          prods[existingIdx] = { ...prods[existingIdx], ...record };
         } else {
-          const newId = pData.id || ("PRD-" + String(prods.length + 1).padStart(3, "0"));
-          prods.push({
-            id: newId,
-            name: pData.name,
-            category: pData.category || "Sơn Phủ",
-            defaultUnit: pData.defaultUnit || "Thùng",
-            ratio: Number(pData.ratio) || 24,
-            baseUnit: pData.baseUnit || "Chai",
-            price: Number(pData.price) || 0,
-            status: pData.status || "ACTIVE",
-            spec: pData.spec || ""
-          });
+          prods.unshift(record);
         }
         db.PRODUCTS = prods;
         this.saveDB(db);
-        return { success: true, message: "Đã lưu thông tin hàng hóa thành công!" };
+        return { success: true, productId: targetId, message: "Đã lưu thông tin hàng hóa thành công!" };
       }
 
       case "toggleProductStatus": {
-        if (params.role !== "ADMIN" && params.role !== "MANAGER") {
-          return { success: false, message: "Chỉ Quản lý hoặc Admin mới có quyền đổi trạng thái kinh doanh!" };
-        }
-        const prod = (db.PRODUCTS || []).find(p => p.id === params.productId);
+        const prod = (db.PRODUCTS || []).find(p => (p.id || p.ProductID) === params.productId);
         if (!prod) return { success: false, message: "Không tìm thấy sản phẩm" };
-        prod.status = prod.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+        const nextSt = (prod.status || prod.Status) === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+        prod.status = nextSt;
+        prod.Status = nextSt;
         this.saveDB(db);
-        return { success: true, product: prod, message: `Đã chuyển trạng thái sang ${prod.status === 'ACTIVE' ? 'Đang kinh doanh' : 'Ngừng kinh doanh'}!` };
+        return { success: true, newStatus: nextSt, product: prod, message: `Đã chuyển trạng thái sang ${nextSt === 'ACTIVE' ? 'Đang kinh doanh' : 'Ngừng kinh doanh'}!` };
       }
+
+      case "deleteProduct": {
+        const idx = (db.PRODUCTS || []).findIndex(p => (p.id || p.ProductID) === params.productId);
+        if (idx < 0) return { success: false, message: "Không tìm thấy sản phẩm cần xóa" };
+        const removed = db.PRODUCTS.splice(idx, 1)[0];
+        this.saveDB(db);
+        return { success: true, message: `Đã xóa mặt hàng ${removed.name || removed.ProductName}!` };
+      }
+
       case "getSettings":
         return { success: true, settings: db.SETTINGS };
+
+      case "saveSettings": {
+        db.SETTINGS = { ...(db.SETTINGS || {}), ...(params.settings || {}) };
+        this.saveDB(db);
+        return { success: true, settings: db.SETTINGS, message: "Đã lưu cấu hình thông số hệ thống thành công!" };
+      }
+
+      case "saveUser": {
+        const uData = params.userData || {};
+        const uId = (uData.UserID || uData.userId || "").trim();
+        const email = (uData.Email || uData.email || "").trim();
+        const name = (uData.Name || uData.name || "").trim();
+        if (!name || !email) return { success: false, message: "Họ tên và Email không được để trống!" };
+
+        const existingIdx = (db.USERS || []).findIndex(u => u.UserID === uId);
+        if (existingIdx >= 0) {
+          const dup = db.USERS.find((u, i) => i !== existingIdx && u.Email.toLowerCase() === email.toLowerCase());
+          if (dup) return { success: false, message: `Email ${email} đã được sử dụng!` };
+          const updated = {
+            ...db.USERS[existingIdx],
+            Name: name,
+            Email: email,
+            Phone: uData.Phone !== undefined ? uData.Phone : db.USERS[existingIdx].Phone,
+            Role: uData.Role || db.USERS[existingIdx].Role,
+            Team: uData.Team !== undefined ? uData.Team : db.USERS[existingIdx].Team,
+            Status: uData.Status || db.USERS[existingIdx].Status || "ACTIVE"
+          };
+          if (uData.Password && String(uData.Password).trim().length >= 6) {
+            updated.Password = String(uData.Password).trim();
+          }
+          db.USERS[existingIdx] = updated;
+          this.saveDB(db);
+          return { success: true, user: updated, message: `Đã cập nhật nhân sự ${name}!` };
+        } else {
+          const dup = (db.USERS || []).find(u => u.Email.toLowerCase() === email.toLowerCase());
+          if (dup) return { success: false, message: `Email ${email} đã tồn tại!` };
+          const newUser = {
+            UserID: uId || ("USR-" + String(Date.now()).slice(-4)),
+            Name: name,
+            Email: email,
+            Password: (uData.Password && String(uData.Password).trim()) || "123456",
+            Role: uData.Role || "SALES",
+            Phone: uData.Phone || "",
+            Team: uData.Team || "North Team",
+            Status: uData.Status || "ACTIVE",
+            CreatedAt: new Date().toISOString()
+          };
+          db.USERS.push(newUser);
+          this.saveDB(db);
+          return { success: true, user: newUser, message: `Đã thêm nhân sự ${name} thành công!` };
+        }
+      }
+
+      case "resetUserPassword": {
+        const u = (db.USERS || []).find(x => x.UserID === params.userId);
+        if (!u) return { success: false, message: "Không tìm thấy nhân sự!" };
+        if (!params.newPassword || params.newPassword.length < 6) {
+          return { success: false, message: "Mật khẩu mới phải tối thiểu 6 ký tự!" };
+        }
+        u.Password = params.newPassword;
+        this.saveDB(db);
+        return { success: true, message: `Đã đặt lại mật khẩu mới cho ${u.Name}!` };
+      }
+
+      case "toggleUserStatus": {
+        const u = (db.USERS || []).find(x => x.UserID === params.userId);
+        if (!u) return { success: false, message: "Không tìm thấy nhân sự!" };
+        u.Status = (u.Status === "INACTIVE") ? "ACTIVE" : "INACTIVE";
+        this.saveDB(db);
+        return { success: true, newStatus: u.Status, message: `Đã đổi trạng thái ${u.Name} sang ${u.Status}!` };
+      }
+
+      case "deleteUser": {
+        const idx = (db.USERS || []).findIndex(x => x.UserID === params.userId);
+        if (idx < 0) return { success: false, message: "Không tìm thấy nhân sự cần xóa!" };
+        const removed = db.USERS.splice(idx, 1)[0];
+        (db.CUSTOMERS || []).forEach(c => {
+          if (c.AssignedSalesID === params.userId) c.AssignedSalesID = "";
+        });
+        this.saveDB(db);
+        return { success: true, message: `Đã xóa nhân sự ${removed.Name}!` };
+      }
+
+      case "reassignRoutes": {
+        const selected = new Set(params.customerIds || []);
+        (db.CUSTOMERS || []).forEach(c => {
+          if (selected.has(c.CustomerID)) {
+            c.AssignedSalesID = params.salesId;
+          } else if (c.AssignedSalesID === params.salesId) {
+            c.AssignedSalesID = "";
+          }
+        });
+        this.saveDB(db);
+        return { success: true, message: "Đã cập nhật phân bổ tuyến bán hàng!" };
+      }
+
+      case "deleteCustomer": {
+        const idx = (db.CUSTOMERS || []).findIndex(c => c.CustomerID === params.customerId);
+        if (idx < 0) return { success: false, message: "Không tìm thấy khách hàng cần xóa!" };
+        const removed = db.CUSTOMERS.splice(idx, 1)[0];
+        this.saveDB(db);
+        return { success: true, message: `Đã xóa khách hàng ${removed.CustomerName}!` };
+      }
 
       case "login": {
         const user = db.USERS.find(u => u.Email.toLowerCase().trim() === (params.email || "").toLowerCase().trim() && u.Status === "ACTIVE");
         if (!user) return { success: false, message: "Tài khoản không tồn tại hoặc đã bị khóa" };
-        return { success: true, user };
+        const reqPass = params.password || "";
+        const userPass = user.Password || "123456";
+        if (reqPass && reqPass !== userPass) {
+          return { success: false, message: "Mật khẩu không chính xác. Vui lòng thử lại." };
+        }
+        const nowSec = Math.floor(Date.now() / 1000);
+        const expSec = nowSec + 3 * 86400; // 3 ngày
+        const payloadObj = { sub: user.UserID, email: user.Email, role: user.Role, iat: nowSec, exp: expSec };
+        const encodedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payloadObj))));
+        const mockToken = `mockjwt.${encodedPayload}.sig`;
+        return { success: true, user, token: mockToken, expiresAt: expSec * 1000, ttlDays: 3 };
+      }
+
+      case "verifyToken": {
+        const tok = params.token || params.authToken || "";
+        if (!tok || typeof tok !== "string") {
+          return { success: false, tokenExpired: true, message: "Không tìm thấy Token đăng nhập." };
+        }
+        try {
+          const parts = tok.split(".");
+          if (parts.length !== 3) throw new Error("Invalid token format");
+          const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const payload = JSON.parse(decodeURIComponent(escape(atob(b64))));
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (!payload.exp || Number(payload.exp) <= nowSec) {
+            return { success: false, tokenExpired: true, message: "Phiên đăng nhập 3 ngày đã hết hạn. Vui lòng đăng nhập lại!" };
+          }
+          const user = db.USERS.find(u => u.UserID === payload.sub && u.Status === "ACTIVE");
+          if (!user) {
+            return { success: false, tokenExpired: true, message: "Tài khoản không tồn tại hoặc đã bị khóa." };
+          }
+          return { success: true, user, expiresAt: Number(payload.exp) * 1000 };
+        } catch (err) {
+          return { success: false, tokenExpired: true, message: "Token đăng nhập không hợp lệ." };
+        }
+      }
+
+      case "changePassword": {
+        const user = db.USERS.find(u => u.UserID === params.userId && u.Status === "ACTIVE");
+        if (!user) return { success: false, message: "Không tìm thấy thông tin tài khoản" };
+        const oldPass = params.oldPassword || "";
+        const userPass = user.Password || "123456";
+        if (oldPass !== userPass) {
+          return { success: false, message: "Mật khẩu hiện tại không chính xác" };
+        }
+        if (!params.newPassword || params.newPassword.length < 6) {
+          return { success: false, message: "Mật khẩu mới phải có tối thiểu 6 ký tự" };
+        }
+        user.Password = params.newPassword;
+        this.saveDB(db);
+        const nowSec = Math.floor(Date.now() / 1000);
+        const expSec = nowSec + 3 * 86400;
+        const payloadObj = { sub: user.UserID, email: user.Email, role: user.Role, iat: nowSec, exp: expSec };
+        const encodedPayload = btoa(unescape(encodeURIComponent(JSON.stringify(payloadObj))));
+        return {
+          success: true,
+          message: "Đổi mật khẩu thành công!",
+          token: `mockjwt.${encodedPayload}.sig`,
+          expiresAt: expSec * 1000
+        };
       }
 
       case "getUsers":
@@ -995,6 +1590,32 @@ const MockDatabase = {
 
         this.saveDB(db);
         return { success: true, duration };
+      }
+
+      case "cancelVisit": {
+        db.VISITS.forEach(v => {
+          if (v.SalesID === params.salesId && v.Status === "IN_PROGRESS" && (!params.visitId || v.VisitID === params.visitId)) {
+            v.Status = "CANCELLED";
+          }
+        });
+        this.saveDB(db);
+        return { success: true };
+      }
+
+      case "cleanupGpsLogs": {
+        const days = Math.max(7, Number(params.retentionDays || 90));
+        const cutoffMs = Date.now() - days * 86400 * 1000;
+        const before = (db.GPS_LOGS || []).length;
+        db.GPS_LOGS = (db.GPS_LOGS || []).filter(g => new Date(g.Timestamp).getTime() >= cutoffMs);
+        this.saveDB(db);
+        const deleted = before - db.GPS_LOGS.length;
+        return {
+          success: true,
+          deletedCount: deleted,
+          remainingLogs: db.GPS_LOGS.length,
+          retentionDays: days,
+          message: `Đã dọn ${deleted} điểm GPS cũ quá ${days} ngày.`
+        };
       }
 
       case "getManagerDashboard": {
