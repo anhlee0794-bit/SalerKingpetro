@@ -1,5 +1,14 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Chuyển Hệ Thống Tab Sang Sidebar Dọc Bật/Tắt & Tối Ưu Giao Diện Điện Thoại (Hoàn Thành 2026-11-27)
+- [x] **1. Nút Icon Nav Bật/Tắt & Sidebar Dọc Trên Desktop (`index.html`, `app.js`, `manager_app.js`, `sales_app.js`)**:
+  - [x] Gắn nút icon điều hướng góc trái Header để thu gọn Sidebar thành thanh Icon (`68px`) hoặc mở rộng đầy đủ (`252px`), tự lưu trạng thái và tự căn lại khung Bản đồ Leaflet.
+- [x] **2. Ngăn Kéo Trượt (Drawer) & Tối Ưu Toàn Diện Trên Điện Thoại (`style.css`)**:
+  - [x] Trên màn hình di động (`<= 992px`), bấm icon Nav hoặc thanh tiêu đề mục hiện tại sẽ trượt mở menu dọc chuẩn cảm ứng ($\ge 44\text{px}$), kèm nút Đổi mật khẩu / Đăng xuất tiện lợi.
+  - [x] Chuẩn hóa Header gọn nhẹ, lưới KPI 2 cột chống tràn, hộp thoại Bottom Sheet và bảng cuộn mượt trên điện thoại.
+- [x] **3. Kiểm thử & Triển khai**: Pass **36/36** unit tests, đồng bộ FTP nguyên tử (bao gồm `css/style.css`, `index.html`, JS, `sw.js` `?v=20261127f`) lên `hiepphucduc.vn` và đẩy lên GitHub.
+
+
 ## Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Hoàn Thành 2026-11-27)
 - [x] **1. Gõ tìm kiếm mượt trên RAM giữ nguyên con trỏ (`manager_app.js`)**: Áp dụng cho cả Tab 4 (Khách Hàng), Tab 6 (Hàng Hóa) và Tab 8 (Nhân Sự).
 - [x] **2. Gom duyệt Đại lý mới chờ duyệt lên Tab 5 & thêm nút Từ chối (`manager_app.js`, `api.php`)**: Quản lý mở Tab 5 thấy ngay cả Điểm bán mới lẫn Yêu cầu sửa thông tin khách cũ.

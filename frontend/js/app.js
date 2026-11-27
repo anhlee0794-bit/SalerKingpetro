@@ -71,11 +71,15 @@ const App = {
   AUTH_SESSION_KEY: "sales_field_auth_session",
   DEMO_SESSION_KEY: "sales_field_demo_session",
   ADMIN_TOOLBAR_STORAGE_KEY: "sales_field_show_admin_toolbar",
+  SIDEBAR_COLLAPSED_KEY: "sales_field_sidebar_collapsed",
   SESSION_TTL_MS: 3 * 24 * 60 * 60 * 1000, // 3 ngày (259,200,000 ms)
   sessionExpiryTimer: null,
   visibilityWatcherBound: false,
+  sidebarEscBound: false,
   authSession: null,
   adminToolbarEnabled: true,
+  sidebarCollapsed: false,
+  mobileNavOpen: false,
   users: [
     { UserID: "USR-000", Name: "Admin Hệ Thống", Email: "admin@company.com", Role: "ADMIN", Team: "HQ", Phone: "0901234500" },
     { UserID: "USR-001", Name: "Quản Lý Nguyễn", Email: "manager@company.com", Role: "MANAGER", Team: "North Team", Phone: "0901234567" },
@@ -226,11 +230,86 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127e").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127f").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
     }
+  },
+
+  initSidebarState() {
+    const saved = localStorage.getItem(this.SIDEBAR_COLLAPSED_KEY);
+    this.sidebarCollapsed = saved === "1" || saved === "true";
+    document.body.classList.toggle("sidebar-collapsed", this.sidebarCollapsed);
+    document.body.classList.remove("mobile-nav-open");
+    this.mobileNavOpen = false;
+    this.updateNavToggleIcon();
+
+    if (!this.sidebarEscBound && typeof window !== "undefined") {
+      this.sidebarEscBound = true;
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && this.mobileNavOpen) {
+          this.closeMobileNav();
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (window.innerWidth > 992 && this.mobileNavOpen) {
+          this.closeMobileNav();
+        }
+        this.updateNavToggleIcon();
+      });
+    }
+  },
+
+  isMobileViewport() {
+    return typeof window !== "undefined" && window.innerWidth <= 992;
+  },
+
+  toggleSidebarNav() {
+    if (this.isMobileViewport()) {
+      this.mobileNavOpen = !this.mobileNavOpen;
+      document.body.classList.toggle("mobile-nav-open", this.mobileNavOpen);
+      this.updateNavToggleIcon();
+      return;
+    }
+
+    this.sidebarCollapsed = !this.sidebarCollapsed;
+    localStorage.setItem(this.SIDEBAR_COLLAPSED_KEY, this.sidebarCollapsed ? "1" : "0");
+    document.body.classList.toggle("sidebar-collapsed", this.sidebarCollapsed);
+    this.updateNavToggleIcon();
+
+    // Cập nhật lại kích thước bản đồ Leaflet sau hiệu ứng đóng/mở sidebar
+    setTimeout(() => {
+      if (typeof ManagerApp !== "undefined" && typeof ManagerApp.invalidateMaps === "function") {
+        ManagerApp.invalidateMaps();
+      }
+    }, 260);
+  },
+
+  closeMobileNav() {
+    if (!this.mobileNavOpen && !document.body.classList.contains("mobile-nav-open")) return;
+    this.mobileNavOpen = false;
+    document.body.classList.remove("mobile-nav-open");
+    this.updateNavToggleIcon();
+  },
+
+  updateNavToggleIcon() {
+    const btn = document.getElementById("btn-nav-toggle");
+    if (!btn || typeof Icons === "undefined") return;
+    if (this.isMobileViewport()) {
+      btn.innerHTML = Icons.render(this.mobileNavOpen ? "x" : "menu", { size: 20 });
+      btn.title = this.mobileNavOpen ? "Đóng menu điều hướng" : "Mở menu điều hướng";
+    } else {
+      btn.innerHTML = Icons.render(this.sidebarCollapsed ? "panel-left-open" : "panel-left-close", { size: 20 });
+      btn.title = this.sidebarCollapsed ? "Mở rộng thanh Tab bên trái" : "Thu gọn thanh Tab bên trái";
+    }
+
+    const collapseLabels = document.querySelectorAll(".sidebar-collapse-btn-inner");
+    collapseLabels.forEach((el) => {
+      el.innerHTML = this.sidebarCollapsed
+        ? Icons.render("chevron-right", { size: 17 })
+        : `${Icons.render("chevron-left", { size: 16 })} <span class="sidebar-item-label">Thu gọn menu</span>`;
+    });
   },
 
   isAdminToolbarVisible() {
@@ -316,6 +395,7 @@ const App = {
   async init() {
     UI.init();
     this.loadLocalAdminToolbarPref();
+    this.initSidebarState();
     this.registerPwaServiceWorker();
     if (typeof ApiService !== "undefined" && typeof ApiService.bindOnlineAutoSync === "function") {
       ApiService.bindOnlineAutoSync();
@@ -468,6 +548,7 @@ const App = {
   async applyUserRole(rawUser) {
     const user = this.normalizeUser(rawUser);
     if (!user) return;
+    this.closeMobileNav();
     this.currentUser = user;
 
     if (this.authSession && this.authSession.expiresAt && Date.now() < Number(this.authSession.expiresAt)) {

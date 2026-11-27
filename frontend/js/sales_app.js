@@ -157,6 +157,9 @@ const SalesApp = {
   },
 
   async switchSalesSubView(view) {
+    if (typeof App !== "undefined" && typeof App.closeMobileNav === "function") {
+      App.closeMobileNav();
+    }
     this.salesSubView = view;
     if (view === "my_stats") {
       UI.showLoading("Đang tải kết quả cá nhân...");
@@ -169,15 +172,83 @@ const SalesApp = {
     this.render();
   },
 
-  renderSalesTopTabsHtml() {
+  renderSalesSidebarHtml() {
+    const uName = (this.currentUser && this.currentUser.Name) || "Sales Rep";
+    const isCollapsed = typeof App !== "undefined" && App.sidebarCollapsed;
+    const dueCnt = (this.customers || []).filter(c => c.CareStatus === "OVERDUE" || c.CareStatus === "DUE_SOON").length;
+
     return `
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; background: var(--bg-subtle); padding: 4px; border-radius: 10px; margin-bottom: 0.75rem; border: 1px solid var(--border);">
-        <button onclick="SalesApp.switchSalesSubView('route')" style="padding: 0.55rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; background: ${this.salesSubView === 'route' ? 'var(--primary)' : 'transparent'}; color: ${this.salesSubView === 'route' ? '#fff' : 'var(--text-muted)'};">
-          ${Icons.render('map-pin', { size: 14, color: this.salesSubView === 'route' ? '#fff' : 'currentColor' })} Tuyến Đi Hôm Nay
-        </button>
-        <button onclick="SalesApp.switchSalesSubView('my_stats')" style="padding: 0.55rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; background: ${this.salesSubView === 'my_stats' ? 'var(--primary)' : 'transparent'}; color: ${this.salesSubView === 'my_stats' ? '#fff' : 'var(--text-muted)'};">
-          ${Icons.render('bar-chart-3', { size: 14, color: this.salesSubView === 'my_stats' ? '#fff' : 'currentColor' })} Kết Quả Của Tôi
-        </button>
+      <aside class="app-vertical-sidebar sales-vertical-sidebar" aria-label="Menu điều hướng Sales">
+        <div class="sidebar-mobile-header">
+          <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+            <div class="sidebar-avatar">${uName.charAt(0).toUpperCase()}</div>
+            <div style="min-width: 0;">
+              <div style="font-weight: 800; font-size: 0.92rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${uName}</div>
+              <span class="role-pill role-sales" style="font-size: 0.66rem; padding: 0.12rem 0.45rem;">SALES</span>
+            </div>
+          </div>
+          <button type="button" class="sidebar-mobile-close" onclick="App.closeMobileNav()" aria-label="Đóng menu">
+            ${Icons.render('x', { size: 18 })}
+          </button>
+        </div>
+
+        <nav class="sidebar-nav-scroll">
+          <div class="sidebar-nav-group">
+            <div class="sidebar-group-title">ĐI TUYẾN THỊ TRƯỜNG</div>
+            <button type="button" class="sidebar-nav-item ${this.salesSubView === 'route' ? 'active' : ''}" onclick="SalesApp.switchSalesSubView('route')" title="Tuyến Đi Hôm Nay">
+              <span class="sidebar-item-icon">${Icons.render('map-pin', { size: 19 })}</span>
+              <span class="sidebar-item-label">Tuyến Đi Hôm Nay</span>
+            </button>
+            <button type="button" class="sidebar-nav-item ${this.salesSubView === 'my_stats' ? 'active' : ''}" onclick="SalesApp.switchSalesSubView('my_stats')" title="Kết Quả Của Tôi">
+              <span class="sidebar-item-icon">${Icons.render('bar-chart-3', { size: 19 })}</span>
+              <span class="sidebar-item-label">Kết Quả Của Tôi</span>
+            </button>
+          </div>
+
+          <div class="sidebar-nav-group">
+            <div class="sidebar-group-title">THAO TÁC NHANH</div>
+            <button type="button" class="sidebar-nav-item" onclick="App.closeMobileNav(); SalesApp.showCareDueModal('ALL_DUE')" title="Khách Cần Chăm Sóc">
+              <span class="sidebar-item-icon">${Icons.render('alert-circle', { size: 19 })}</span>
+              <span class="sidebar-item-label">Khách Cần Chăm (${dueCnt})</span>
+            </button>
+            <button type="button" class="sidebar-nav-item" onclick="App.closeMobileNav(); SalesApp.showCreateProspectModal()" title="Thêm Điểm Bán Mới">
+              <span class="sidebar-item-icon">${Icons.render('plus-circle', { size: 19 })}</span>
+              <span class="sidebar-item-label">Thêm Điểm Bán Mới</span>
+            </button>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button type="button" class="sidebar-collapse-btn" onclick="App.toggleSidebarNav()" title="Thu gọn / Mở rộng thanh menu">
+            <span class="sidebar-collapse-btn-inner">
+              ${isCollapsed ? Icons.render('chevron-right', { size: 17 }) : `${Icons.render('chevron-left', { size: 16 })} <span class="sidebar-item-label">Thu gọn menu</span>`}
+            </span>
+          </button>
+          <div class="sidebar-mobile-actions">
+            <button type="button" class="sidebar-mobile-action-btn" onclick="App.closeMobileNav(); App.showChangePasswordModal();">
+              🔑 Đổi mật khẩu
+            </button>
+            <button type="button" class="sidebar-mobile-action-btn danger" onclick="App.closeMobileNav(); App.logout();">
+              🚪 Đăng xuất
+            </button>
+          </div>
+        </div>
+      </aside>
+    `;
+  },
+
+  renderSalesTopTabsHtml() {
+    const activeTitle = this.salesSubView === "my_stats" ? "Kết Quả Của Tôi" : "Tuyến Đi Hôm Nay";
+    const activeIcon = this.salesSubView === "my_stats" ? "bar-chart-3" : "map-pin";
+    return `
+      <div class="mobile-current-tab-bar" onclick="App.toggleSidebarNav()">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: var(--primary); font-size: 0.9rem;">
+          ${Icons.render(activeIcon, { size: 17 })}
+          <span>${activeTitle}</span>
+        </div>
+        <span class="mobile-tab-switch-hint">
+          ${Icons.render('menu', { size: 14 })} Đổi mục
+        </span>
       </div>
     `;
   },
@@ -259,12 +330,18 @@ const SalesApp = {
 
     if (this.salesSubView === "my_stats") {
       container.innerHTML = `
-        <div class="sales-mobile-container">
-          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
-          ${this.renderSalesTopTabsHtml()}
-          ${this.renderMyStatsBodyHtml()}
+        <div class="app-shell-layout sales-shell-layout">
+          ${this.renderSalesSidebarHtml()}
+          <div class="app-main-content">
+            <div class="sales-mobile-container">
+              <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+              ${this.renderSalesTopTabsHtml()}
+              ${this.renderMyStatsBodyHtml()}
+            </div>
+          </div>
         </div>
       `;
+      if (typeof App !== "undefined" && typeof App.updateNavToggleIcon === "function") App.updateNavToggleIcon();
       return;
     }
 
@@ -276,10 +353,13 @@ const SalesApp = {
       const dueSoonList = this.customers.filter(c => c.CareStatus === "DUE_SOON");
 
       container.innerHTML = `
-        <div class="sales-mobile-container">
-          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
-          ${this.renderSalesTopTabsHtml()}
-          <div class="greeting-card">
+        <div class="app-shell-layout sales-shell-layout">
+          ${this.renderSalesSidebarHtml()}
+          <div class="app-main-content">
+            <div class="sales-mobile-container">
+              <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+              ${this.renderSalesTopTabsHtml()}
+              <div class="greeting-card">
             <div class="greeting-text">
               <h2>Xin chào, ${this.currentUser.Name}</h2>
               <div class="date-text">Hôm nay: ${todayStr}</div>
@@ -318,9 +398,12 @@ const SalesApp = {
               <div style="font-size: 0.75rem; color: var(--text-muted);">Trong chu kỳ</div>
             </div>
           </div>
+            </div>
+          </div>
         </div>
       `;
 
+      if (typeof App !== "undefined" && typeof App.updateNavToggleIcon === "function") App.updateNavToggleIcon();
       document.getElementById("btn-start-work").onclick = () => this.handleStartWork();
     } else {
       // ----------------------------------------------------
@@ -469,10 +552,13 @@ const SalesApp = {
       }).join("");
 
       container.innerHTML = `
-        <div class="sales-mobile-container">
-          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
-          ${this.renderSalesTopTabsHtml()}
-          <!-- GREETING BAR -->
+        <div class="app-shell-layout sales-shell-layout">
+          ${this.renderSalesSidebarHtml()}
+          <div class="app-main-content">
+            <div class="sales-mobile-container">
+              <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+              ${this.renderSalesTopTabsHtml()}
+              <!-- GREETING BAR -->
           <div class="greeting-card">
             <div class="greeting-text">
               <h2>${this.currentUser.Name}</h2>
@@ -577,8 +663,12 @@ const SalesApp = {
               ${Icons.render('square', { size: 18 })} KẾT THÚC CA LÀM VIỆC
             </button>
           </div>
+            </div>
+          </div>
         </div>
       `;
+
+      if (typeof App !== "undefined" && typeof App.updateNavToggleIcon === "function") App.updateNavToggleIcon();
 
       if (this.activeVisit) {
         const btnCheckout = document.getElementById("btn-show-checkout");

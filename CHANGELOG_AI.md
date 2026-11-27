@@ -1,5 +1,18 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Chuyển Đổi Giao Diện Hệ Thống Tab Sang Sidebar Dọc Thu Gọn/Mở Rộng & Tối Ưu Toàn Diện Cho Điện Thoại
+- **Mục đích / Bối cảnh**: Thay thế thanh Tab ngang dài (dễ bị tràn thanh cuộn ngang trên màn hình nhỏ) bằng hệ thống **Sidebar dọc** phân nhóm trực quan kèm nút icon bật/tắt ngay góc trái Header, đồng thời tối ưu trải nghiệm ngăn kéo trượt (Slide-over Drawer) và bố cục responsive cho điện thoại di động.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/index.html` & `frontend/css/style.css`:
+    - Thêm nút icon điều hướng `#btn-nav-toggle` cạnh logo `SALES FIELD` và lớp nền mờ `#mobile-nav-backdrop`.
+    - Thiết kế `.app-shell-layout` & `.app-vertical-sidebar`: Trên máy tính (`> 992px`) hỗ trợ thu gọn (`68px` chỉ hiện icon) hoặc mở rộng (`252px` hiện nhóm chức năng + nhãn đầy đủ); trên điện thoại & máy tính bảng (`<= 992px`) tự chuyển thành ngăn kéo trượt từ cạnh trái (`282px`, chuẩn nút chạm $\ge 44\text{px}$) kèm thanh hiển thị nhanh mục đang mở (`mobile-current-tab-bar`).
+    - Tối ưu responsive di động (`<= 768px` & `<= 380px`) cho Header gọn gàng, thẻ KPI 2 cột chống tràn số, bảng đối chiếu Trước/Sau 1 cột, bản đồ `350px` và hộp thoại dạng Bottom Sheet dễ bấm bằng 1 tay.
+  - `frontend/js/app.js`, `frontend/js/manager_app.js`, `frontend/js/sales_app.js`, `frontend/js/icons.js`, `frontend/sw.js`:
+    - Bổ sung `initSidebarState()`, `toggleSidebarNav()`, `closeMobileNav()`, `updateNavToggleIcon()` lưu trạng thái thu gọn vào `localStorage` và tự động gọi `ManagerApp.invalidateMaps()` để bản đồ Leaflet co giãn mượt mà khi đóng/mở sidebar.
+    - Cập nhật `ManagerApp.renderLayout()` (phân 3 nhóm: Giám sát thị trường, Khách hàng & Hàng hóa, Báo cáo & Quản trị) và `SalesApp.renderSalesSidebarHtml()` đồng bộ Sidebar dọc trên cả giao diện Quản lý lẫn Sales; nâng cache PWA lên `?v=20261127f`.
+- **Kết quả kiểm thử & xác minh**:
+  - Quét kiểm tra tĩnh `full_cross_audit.py` đạt **0 lỗi**, pass **36/36** unit tests, `node --check` 9/9 file JS sạch lỗi và đồng bộ nguyên tử FTP (bao gồm `css/style.css`) lên `hiepphucduc.vn`.
+
 ## [2026-11-27] - Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Tìm Kiếm Giữ Con Trỏ, Gom Duyệt Điểm Mới, CSV Excel UTF-8 BOM, Offline Điểm Mới & Cảnh Báo Kết Ca)
 - **Mục đích / Bối cảnh**: Xử lý dứt điểm 5 điểm cấn nhỏ còn lại sau đợt quét kiểm tra chéo toàn bộ 39/39 API và giao diện vận hành.
 - **Các file thay đổi (Affected Files)**:

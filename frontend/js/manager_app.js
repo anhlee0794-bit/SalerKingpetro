@@ -29,15 +29,15 @@ const ManagerApp = {
 
     const currentRole = (this.currentUser && this.currentUser.Role) || "MANAGER";
     const allTabs = [
-      { id: "dashboard", label: "Tổng Quan Dashboard", icon: "layout-dashboard" },
-      { id: "map", label: "Bản Đồ & Tuyến Đường", icon: "map" },
-      { id: "timeline", label: "Chi Tiết & Timeline", icon: "clock" },
-      { id: "customers", label: "Khách Hàng", icon: "users" },
-      { id: "approvals", label: "Phê Duyệt Thay Đổi", icon: "file-check" },
-      { id: "products", label: "Quản Lý Hàng Hóa", icon: "package" },
-      { id: "reports", label: "Báo Cáo & Thống Kê", icon: "bar-chart-3" },
-      { id: "users", label: "Nhân Sự & Phân Tuyến", icon: "shield-check" },
-      { id: "settings", label: "Cài Đặt Hệ Thống", icon: "settings" }
+      { id: "dashboard", label: "Tổng Quan Dashboard", shortLabel: "Tổng Quan", icon: "layout-dashboard", group: "GIÁM SÁT THỊ TRƯỜNG" },
+      { id: "map", label: "Bản Đồ & Tuyến Đường", shortLabel: "Bản Đồ Tuyến", icon: "map", group: "GIÁM SÁT THỊ TRƯỜNG" },
+      { id: "timeline", label: "Chi Tiết & Timeline", shortLabel: "Timeline", icon: "clock", group: "GIÁM SÁT THỊ TRƯỜNG" },
+      { id: "customers", label: "Khách Hàng", shortLabel: "Khách Hàng", icon: "users", group: "KHÁCH HÀNG & HÀNG HÓA" },
+      { id: "approvals", label: "Phê Duyệt Thay Đổi", shortLabel: "Phê Duyệt", icon: "file-check", group: "KHÁCH HÀNG & HÀNG HÓA" },
+      { id: "products", label: "Quản Lý Hàng Hóa", shortLabel: "Hàng Hóa", icon: "package", group: "KHÁCH HÀNG & HÀNG HÓA" },
+      { id: "reports", label: "Báo Cáo & Thống Kê", shortLabel: "Báo Cáo", icon: "bar-chart-3", group: "BÁO CÁO & QUẢN TRỊ" },
+      { id: "users", label: "Nhân Sự & Phân Tuyến", shortLabel: "Nhân Sự", icon: "shield-check", group: "BÁO CÁO & QUẢN TRỊ" },
+      { id: "settings", label: "Cài Đặt Hệ Thống", shortLabel: "Cài Đặt", icon: "settings", group: "BÁO CÁO & QUẢN TRỊ" }
     ];
 
     const accessibleTabs = allTabs.filter(t => {
@@ -48,23 +48,104 @@ const ManagerApp = {
       this.activeTab = accessibleTabs[0] ? accessibleTabs[0].id : "dashboard";
     }
 
-    container.innerHTML = `
-      <div class="manager-dashboard-container">
-        <!-- Tab Navigation -->
-        <div class="manager-nav-tabs">
-          ${accessibleTabs.map(t => `
-            <button class="tab-btn ${this.activeTab === t.id ? 'active' : ''}" onclick="ManagerApp.switchTab('${t.id}')">
-              ${Icons.render(t.icon, { size: 18 })} ${t.label}
-            </button>
-          `).join("")}
-        </div>
+    const activeTabMeta = accessibleTabs.find(t => t.id === this.activeTab) || accessibleTabs[0];
+    const groups = [];
+    accessibleTabs.forEach(t => {
+      let g = groups.find(x => x.name === t.group);
+      if (!g) {
+        g = { name: t.group, items: [] };
+        groups.push(g);
+      }
+      g.items.push(t);
+    });
 
-        <!-- Tab Content Viewport -->
-        <div id="manager-tab-content">
-          <!-- Dynamic Content Loads Here -->
+    const isCollapsed = typeof App !== "undefined" && App.sidebarCollapsed;
+    const uName = (this.currentUser && this.currentUser.Name) || "Quản lý";
+
+    container.innerHTML = `
+      <div class="app-shell-layout manager-dashboard-container">
+        <!-- Vertical Collapsible Sidebar / Mobile Slide-over Drawer -->
+        <aside class="app-vertical-sidebar" aria-label="Menu điều hướng Quản lý">
+          <div class="sidebar-mobile-header">
+            <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+              <div class="sidebar-avatar">${uName.charAt(0).toUpperCase()}</div>
+              <div style="min-width: 0;">
+                <div style="font-weight: 800; font-size: 0.92rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${uName}</div>
+                <span class="role-pill role-${currentRole.toLowerCase()}" style="font-size: 0.66rem; padding: 0.12rem 0.45rem;">${currentRole}</span>
+              </div>
+            </div>
+            <button type="button" class="sidebar-mobile-close" onclick="App.closeMobileNav()" aria-label="Đóng menu">
+              ${Icons.render('x', { size: 18 })}
+            </button>
+          </div>
+
+          <nav class="sidebar-nav-scroll">
+            ${groups.map(g => `
+              <div class="sidebar-nav-group">
+                <div class="sidebar-group-title">${g.name}</div>
+                ${g.items.map(t => `
+                  <button
+                    type="button"
+                    class="sidebar-nav-item ${this.activeTab === t.id ? 'active' : ''}"
+                    onclick="ManagerApp.switchTab('${t.id}')"
+                    title="${t.label}"
+                  >
+                    <span class="sidebar-item-icon">${Icons.render(t.icon, { size: 19 })}</span>
+                    <span class="sidebar-item-label">${t.label}</span>
+                  </button>
+                `).join("")}
+              </div>
+            `).join("")}
+          </nav>
+
+          <div class="sidebar-footer">
+            <button type="button" class="sidebar-collapse-btn" onclick="App.toggleSidebarNav()" title="Thu gọn / Mở rộng thanh menu">
+              <span class="sidebar-collapse-btn-inner">
+                ${isCollapsed ? Icons.render('chevron-right', { size: 17 }) : `${Icons.render('chevron-left', { size: 16 })} <span class="sidebar-item-label">Thu gọn menu</span>`}
+              </span>
+            </button>
+            <div class="sidebar-mobile-actions">
+              <button type="button" class="sidebar-mobile-action-btn" onclick="App.closeMobileNav(); App.showChangePasswordModal();">
+                🔑 Đổi mật khẩu
+              </button>
+              <button type="button" class="sidebar-mobile-action-btn danger" onclick="App.closeMobileNav(); App.logout();">
+                🚪 Đăng xuất
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="app-main-content">
+          <!-- Mobile Active Tab Quick Bar -->
+          <div class="mobile-current-tab-bar" onclick="App.toggleSidebarNav()">
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: var(--primary); font-size: 0.9rem;">
+              ${Icons.render(activeTabMeta ? activeTabMeta.icon : 'layout-dashboard', { size: 17 })}
+              <span>${activeTabMeta ? activeTabMeta.label : 'Tổng Quan'}</span>
+            </div>
+            <span class="mobile-tab-switch-hint">
+              ${Icons.render('menu', { size: 14 })} Đổi mục
+            </span>
+          </div>
+
+          <!-- Tab Content Viewport -->
+          <div id="manager-tab-content">
+            <!-- Dynamic Content Loads Here -->
+          </div>
         </div>
       </div>
     `;
+
+    if (typeof App !== "undefined" && typeof App.updateNavToggleIcon === "function") {
+      App.updateNavToggleIcon();
+    }
+  },
+
+  invalidateMaps() {
+    try {
+      if (this.mapInstance) this.mapInstance.invalidateSize();
+      if (this.customerMapInstance) this.customerMapInstance.invalidateSize();
+    } catch (e) {}
   },
 
   async switchTab(tabName) {
@@ -72,6 +153,10 @@ const ManagerApp = {
     if (typeof PermissionService !== "undefined" && !PermissionService.canAccessTab(currentRole, tabName)) {
       UI.showToast("Bạn không có quyền truy cập chức năng này!", "danger");
       return;
+    }
+
+    if (typeof App !== "undefined" && typeof App.closeMobileNav === "function") {
+      App.closeMobileNav();
     }
 
     this.activeTab = tabName;
