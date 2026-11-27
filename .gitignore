@@ -40,6 +40,8 @@ ENV/
 .env.test.local
 .env.production.local
 *.env
+backend-php/config.local.php
+backend-php/uploads/
 
 # ==========================================
 # OS Generated Files
@@ -75,4 +77,3 @@ tmp/
 
 # Archives
 *.zip
-

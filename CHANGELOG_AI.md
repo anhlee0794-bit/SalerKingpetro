@@ -1,5 +1,32 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Xử Lý Toàn Diện Báo Cáo Thẩm Tra Quy Trình Sales, Trung Thực GPS, Giỏ Đơn Nhiều Mặt Hàng, Chụp Ảnh Điểm Bán & Tách Bí Mật Khỏi Git
+- **Mục đích / Bối cảnh**: Giải quyết triệt để các lỗ hổng bảo mật, tính trung thực tọa độ GPS, thuật toán nhận diện di chuyển và các giới hạn nghiệp vụ bán hàng phát hiện trong đợt thẩm tra toàn hệ thống (`audit_sales_app.md`).
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/config.php`, `backend-php/config.local.php` (git-ignored), `.gitignore`, `backend-php/.htaccess`:
+    - Tách hoàn toàn `DB_PASS` và khóa ký JWT riêng biệt (`AUTH_TOKEN_SECRET`) sang `config.local.php` (nằm trong `.gitignore`, không đẩy lên GitHub) và chặn `403 Forbidden` qua `.htaccess`; bổ sung whitelist tên miền CORS (`applySecureCorsHeaders()`).
+  - `backend-php/api.php` & `backend-php/schema.sql`:
+    - **Bảo mật đăng nhập**: Bổ sung Rate-Limit khóa tạm 10 phút nếu nhập sai mật khẩu $\ge 5$ lần trên cùng IP+Email (ghi vào bảng `logs`), cấm mật khẩu rỗng và trả cờ `mustChangePassword: true` khi nhân viên còn dùng mật khẩu mặc định `123456`.
+    - **Đối soát khoảng cách Check-in trung thực**: Tự động thêm cột `distance_meters`, `is_within_geofence`, `photo_url`, `order_items_json`, `order_total_amount` vào bảng `visits`; hàm `computeCustomerGeofence()` tính chính xác khoảng cách Haversine thực tế giữa Sales và đại lý (ghi nhận cảnh báo dữ liệu khách quan `OUT_OF_GEOFENCE` trên Timeline nếu ở ngoài bán kính).
+    - **Tự đóng ca treo qua đêm & Thời lượng ghé thực tế**: Hàm `closeStaleWorkSessions()` tự chốt các ca `WORKING` của ngày cũ lúc `18:00`; nhận mốc `arrivedAt` từ bộ theo dõi vùng điểm bán để tính đúng số phút đứng tại đại lý; lọc bỏ các điểm GPS nhiễu (`LOW_ACCURACY` > ngưỡng sai số) khỏi thời gian đứng yên.
+    - **Nghiệp vụ bán hàng mở rộng**: Lưu ảnh chụp thực tế xuống thư mục `api/uploads/visits/` (kèm `.htaccess` chặn thực thi `.php`), lưu chi tiết giỏ đơn nhiều sản phẩm & tổng thành tiền, chuyển `createCustomer` của Sales sang `PENDING_APPROVAL` chờ Quản lý duyệt, ẩn đại lý chưa phân tuyến khỏi Sales, chuyển `deleteCustomer` sang xóa mềm (`status = 'DELETED'`), tính chỉ tiêu tuyến hợp lý theo ngày (`DAILY_VISIT_TARGET = 8`) và thêm API `getSalesMySummary`.
+  - `frontend/js/geo.js`:
+    - Bổ sung `getReliablePosition()` (thử GPS vệ tinh chính xác cao -> dự phòng trạm sóng/Wi-Fi, **tuyệt đối không chèn tọa độ giả**).
+    - Nâng cấp `classifyActivity()` đối chiếu theo **cửa sổ điểm neo 30 giây (`anchorPosition`)** và nhận đầy đủ `settings` của Admin, khắc phục triệt để lỗi chạy xe máy bị nhận nhầm là `STATIONARY`.
+    - Tích hợp **Screen Wake Lock API** giữ sáng màn hình khi đang đi tuyến, tự động đồng bộ GPS ngay khi mở khóa màn hình (`visibilitychange`) và ghi nhận `arrivalMap` thời điểm tới điểm bán.
+  - `frontend/js/sales_app.js` & `frontend/js/products.js`:
+    - Xóa bỏ 100% tọa độ giả Quận 1 (`10.7760, 106.6950`) và bỏ hành vi lấy tọa độ đại lý gán cho Sales khi mất GPS.
+    - Nâng cấp Block C thành **Giỏ đơn hàng nhiều mặt hàng** (`+ Thêm mặt hàng khác`, tự tính đơn giá theo đơn vị tính & tổng thành tiền VNĐ).
+    - Bổ sung nút **📷 Chụp ảnh cửa hàng / kệ hàng thực tế** trong Block D (tự động nén ảnh qua `<canvas>` chuẩn 800px JPEG nhẹ cho 4G).
+    - Thêm thanh chuyển đổi 2 tab trên di động: **`📍 Tuyến Đi Hôm Nay`** và **`📊 Kết Quả Của Tôi`** (hiển thị tiến độ chỉ tiêu ngày, doanh số tháng và 15 lượt chăm sóc gần nhất).
+  - `frontend/js/manager_app.js` & `frontend/js/app.js` & `frontend/js/icons.js`:
+    - Hiển thị nhãn đối soát khoảng cách (`🟢 Đúng vị trí` / `🟠 Cách cửa hàng X km`), chi tiết giỏ đơn nhiều sản phẩm, doanh số đơn hàng và ảnh chụp thực tế trong Modal Chi Tiết Khách Hàng & Báo Cáo; thêm ô cấu hình `DAILY_VISIT_TARGET` trong Tab Cài Đặt; tự bật hộp thoại bắt đổi mật khẩu khi nhân sự dùng pass mặc định `123456`.
+  - `frontend/index.html` & `frontend/sw.js`: Nâng version PWA cache `?v=20261127a`.
+  - `tests/test_logic.py`: Bổ sung 3 bộ test mới (`test_anchor_movement_classification_and_geofence_audit`, `test_stale_overnight_session_auto_close_and_multi_item_order`, `test_login_rate_limiter_and_soft_delete_isolation`) — đạt **32/32 PASS**.
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` (**32/32 PASS**) & `node --check` trên toàn bộ 9 file JS (0 lỗi).
+  - Đồng bộ nguyên tử FTP 14 file lên `https://hiepphucduc.vn/saler/` và kiểm tra E2E: `/api/config.php` & `/api/config.local.php` đều trả `HTTP 403`, `config.php` sạch mật khẩu 100%, `getManagerDashboard`, `getPerformanceReports(today)` (`targetVisits <= 8`), `getSalesMySummary` hoạt động chuẩn xác.
+
 ## [2026-11-26] - Hoàn Thiện Đồng Bộ API MySQL, Hàng Đợi Offline 4G, PWA Di Động & Bảo Mật Máy Chủ (9 Hạng Mục Production)
 - **Mục đích / Bối cảnh**: Xử lý trọn vẹn 9 hạng mục trọng yếu thuộc 3 nhóm ưu tiên (🔴 Khớp 100% API Frontend - MySQL, 🟠 Chống mất dữ liệu khi rớt sóng 3G/4G & Cài đặt PWA trên điện thoại, 🟡 Khóa chặt JWT 100% endpoint, chặn truy cập thư mục `.htaccess` và tự động dọn rác bảng `gps_logs`) trước khi bàn giao đội ngũ Sales vận hành thực tế.
 - **Các file thay đổi (Affected Files)**:

@@ -743,6 +743,141 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         # Visits history (1 year old) is 100% preserved forever
         self.assertEqual(len(visits), 1)
 
+    def test_anchor_movement_classification_and_geofence_audit(self):
+        settings = {"GPS_ACCURACY_LIMIT": 80, "MOVING_SPEED_THRESHOLD": 1.2, "STATIONARY_DISTANCE_THRESHOLD": 30}
+        # 1. Anchor 30s ago at (10.7685, 106.6892); motorbike moved ~160m north in 30s (~5.3 m/s) with speed=None -> MOVING!
+        anchor = {"lat": 10.768500, "lng": 106.689200, "accuracy": 15, "speed": None, "ts": 1000}
+        curr_moving = {"lat": 10.769950, "lng": 106.689200, "accuracy": 15, "speed": None, "ts": 31000}
+        self.assertEqual(AnchorActivityClassifier.classify(curr_moving, anchor, settings), "MOVING")
+
+        # 2. High GPS inaccuracy (>80m) -> UNKNOWN / LOW_ACCURACY (ignored for stationary duration)
+        curr_noisy = {"lat": 10.769950, "lng": 106.689200, "accuracy": 150, "speed": 0, "ts": 35000}
+        self.assertEqual(AnchorActivityClassifier.classify(curr_noisy, anchor, settings), "UNKNOWN")
+
+        # 3. Geofence distance audit: within 200m vs 1.5km away vs missing GPS (0,0 -> None, never faked!)
+        in_geo = GeofenceAuditor.audit(10.768600, 106.689250, 10.768500, 106.689200, radius=200)
+        self.assertEqual(in_geo["within"], 1)
+        self.assertLessEqual(in_geo["distance"], 30)
+
+        out_geo = GeofenceAuditor.audit(10.782000, 106.700000, 10.768500, 106.689200, radius=200)
+        self.assertEqual(out_geo["within"], 0)
+        self.assertGreater(out_geo["distance"], 1000)
+
+        no_gps = GeofenceAuditor.audit(0, 0, 10.768500, 106.689200, radius=200)
+        self.assertIsNone(no_gps["distance"])
+        self.assertIsNone(no_gps["within"])
+
+    def test_stale_overnight_session_auto_close_and_multi_item_order(self):
+        # 1. Stale WORKING session from yesterday is auto-closed at 18:00 so today starts fresh
+        sessions = [
+            {"session_id": "SES-YESTERDAY", "sales_id": "USR-002", "date": "2026-11-26", "check_in_time": "2026-11-26 08:30:00", "status": "WORKING"}
+        ]
+        StaleSessionCloser.close_stale(sessions, today="2026-11-27")
+        self.assertEqual(sessions[0]["status"], "COMPLETED")
+        self.assertEqual(sessions[0]["check_out_time"], "2026-11-26 18:00:00")
+        self.assertEqual(sessions[0]["work_duration"], 570)
+
+        # 2. Multi-product order cart sums total qty and revenue accurately
+        cart = [
+            {"productName": "KingPetro 20W50", "qty": 5, "unit": "Thùng", "unitPrice": 1450000},
+            {"productName": "Mỡ Chịu Nhiệt EP-3", "qty": 2, "unit": "Xô", "unitPrice": 1680000}
+        ]
+        summary = MultiOrderCalculator.summarize(cart)
+        self.assertEqual(summary["totalQty"], 7)
+        self.assertEqual(summary["totalAmount"], 5 * 1450000 + 2 * 1680000)
+        self.assertIn("KingPetro 20W50 (5 Thùng)", summary["productSummary"])
+
+    def test_login_rate_limiter_and_soft_delete_isolation(self):
+        limiter = LoginRateLimiter(max_fails=5)
+        for _ in range(5):
+            limiter.record_fail("1.2.3.4|sales.a@company.com")
+        self.assertTrue(limiter.is_locked("1.2.3.4|sales.a@company.com"))
+        self.assertFalse(limiter.is_locked("1.2.3.4|sales.b@company.com"))
+
+        # Soft-delete preserves customer record for historical visits while hiding from active lists,
+        # and unassigned ('') customers are hidden from Sales reps
+        custs = [
+            {"id": "C1", "status": "ACTIVE", "assigned": "USR-002"},
+            {"id": "C2", "status": "PENDING_APPROVAL", "assigned": "USR-002"},
+            {"id": "C3", "status": "ACTIVE", "assigned": ""},
+            {"id": "C4", "status": "DELETED", "assigned": "USR-002"}
+        ]
+        visible_sales = [
+            c["id"] for c in custs
+            if (c["status"] == "ACTIVE" and c["assigned"] in ("USR-002", "ALL"))
+            or (c["status"] == "PENDING_APPROVAL" and c["assigned"] == "USR-002")
+        ]
+        self.assertEqual(visible_sales, ["C1", "C2"])
+
+class AnchorActivityClassifier:
+    @staticmethod
+    def classify(curr, anchor, settings):
+        if not curr or not curr.get("accuracy") or curr["accuracy"] > settings.get("GPS_ACCURACY_LIMIT", 80):
+            return "UNKNOWN"
+        spd_thr = settings.get("MOVING_SPEED_THRESHOLD", 1.2)
+        dist_thr = settings.get("STATIONARY_DISTANCE_THRESHOLD", 30)
+        if curr.get("speed") is not None and curr["speed"] >= spd_thr:
+            return "MOVING"
+        if not anchor:
+            return "STATIONARY"
+        dist = GeofenceAuditor.haversine_m(anchor["lat"], anchor["lng"], curr["lat"], curr["lng"])
+        dt = max(1.0, (curr["ts"] - anchor["ts"]) / 1000.0)
+        calc_spd = dist / dt
+        if dist >= dist_thr and calc_spd >= spd_thr * 0.75:
+            return "MOVING"
+        if dt >= 10 and calc_spd >= spd_thr and dist >= 12:
+            return "MOVING"
+        return "STATIONARY"
+
+class GeofenceAuditor:
+    @staticmethod
+    def haversine_m(lat1, lon1, lat2, lon2):
+        import math
+        r = 6371000.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    @staticmethod
+    def audit(s_lat, s_lng, c_lat, c_lng, radius=200):
+        if (s_lat == 0 and s_lng == 0) or (c_lat == 0 and c_lng == 0):
+            return {"distance": None, "within": None}
+        d = round(GeofenceAuditor.haversine_m(s_lat, s_lng, c_lat, c_lng))
+        return {"distance": d, "within": 1 if d <= radius else 0}
+
+class StaleSessionCloser:
+    @staticmethod
+    def close_stale(sessions, today):
+        for s in sessions:
+            if s["status"] == "WORKING" and s["date"] < today:
+                s["check_out_time"] = f"{s['date']} 18:00:00"
+                # 08:30 -> 18:00 = 9.5h = 570m
+                h1, m1 = map(int, s["check_in_time"][11:16].split(":"))
+                s["work_duration"] = max(1, (18 * 60) - (h1 * 60 + m1))
+                s["status"] = "COMPLETED"
+
+class MultiOrderCalculator:
+    @staticmethod
+    def summarize(items):
+        valid = [i for i in items if i.get("productName") and int(i.get("qty", 0)) > 0]
+        return {
+            "totalQty": sum(int(i["qty"]) for i in valid),
+            "totalAmount": sum(int(i["qty"]) * float(i.get("unitPrice", 0)) for i in valid),
+            "productSummary": ", ".join(f"{i['productName']} ({i['qty']} {i['unit']})" for i in valid)
+        }
+
+class LoginRateLimiter:
+    def __init__(self, max_fails=5):
+        self.max_fails = max_fails
+        self.counts = {}
+
+    def record_fail(self, key):
+        self.counts[key] = self.counts.get(key, 0) + 1
+
+    def is_locked(self, key):
+        return self.counts.get(key, 0) >= self.max_fails
+
 class CarePayloadNormalizer:
     @staticmethod
     def normalize(params, existing_stock=0, existing_unit="Thùng", existing_debt=0.0):

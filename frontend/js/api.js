@@ -469,8 +469,8 @@ const ApiService = {
     return this.request("getCustomerVisits", { customerId });
   },
 
-  async checkinVisit(salesId, customerId, sessionId, lat, lng, accuracy) {
-    return this.request("checkinVisit", { salesId, customerId, sessionId, lat, lng, accuracy });
+  async checkinVisit(salesId, customerId, sessionId, lat, lng, accuracy, arrivedAt = null) {
+    return this.request("checkinVisit", { salesId, customerId, sessionId, lat, lng, accuracy, arrivedAt });
   },
 
   async cancelVisit(visitId, salesId) {
@@ -495,6 +495,10 @@ const ApiService = {
 
   async getPerformanceReports(salesId, period, date) {
     return this.request("getPerformanceReports", { salesId, period, date });
+  },
+
+  async getSalesMySummary(salesId) {
+    return this.request("getSalesMySummary", { salesId });
   },
 
   async getSettings() {
@@ -1615,6 +1619,32 @@ const MockDatabase = {
           remainingLogs: db.GPS_LOGS.length,
           retentionDays: days,
           message: `Đã dọn ${deleted} điểm GPS cũ quá ${days} ngày.`
+        };
+      }
+
+      case "getSalesMySummary": {
+        const sId = params.salesId;
+        const thisMonth = today.substring(0, 7);
+        const dailyTarget = Number((db.SETTINGS && db.SETTINGS.DAILY_VISIT_TARGET) || 8);
+        const userVisits = (db.VISITS || []).filter(v => v.SalesID === sId && v.Status === "COMPLETED");
+        const sumStats = (list) => ({
+          visits: list.length,
+          orderQty: list.reduce((a, v) => a + Number(v.NewOrderQty || 0), 0),
+          orderRevenue: list.reduce((a, v) => a + Number(v.OrderTotalAmount || 0), 0),
+          distributed: list.reduce((a, v) => a + Number(v.DistributedQty || 0), 0)
+        });
+        const todayVisits = userVisits.filter(v => String(v.CheckInTime || "").substring(0, 10) === today);
+        const monthVisits = userVisits.filter(v => String(v.CheckInTime || "").substring(0, 7) === thisMonth);
+        const recent = [...userVisits].reverse().slice(0, 15).map(v => {
+          const cust = (db.CUSTOMERS || []).find(c => c.CustomerID === v.CustomerID);
+          return { ...v, CustomerName: cust ? cust.CustomerName : v.CustomerID };
+        });
+        return {
+          success: true,
+          dailyTarget,
+          today: sumStats(todayVisits),
+          month: sumStats(monthVisits),
+          recentVisits: recent
         };
       }
 

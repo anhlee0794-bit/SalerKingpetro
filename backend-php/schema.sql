@@ -117,6 +117,11 @@ CREATE TABLE `visits` (
   `inventory_unit` VARCHAR(50) DEFAULT 'Thùng',
   `reorder_unit` VARCHAR(50) DEFAULT 'Thùng',
   `new_order_unit` VARCHAR(50) DEFAULT 'Thùng',
+  `distance_meters` INT DEFAULT NULL COMMENT 'Khoảng cách thực tế lúc check-in (mét)',
+  `is_within_geofence` TINYINT(1) DEFAULT NULL COMMENT '1: Đúng vị trí, 0: Ngoài bán kính, NULL: Không có GPS',
+  `photo_url` VARCHAR(500) DEFAULT NULL COMMENT 'Ảnh chụp thực tế tại điểm bán',
+  `order_items_json` LONGTEXT DEFAULT NULL COMMENT 'Chi tiết giỏ đơn hàng nhiều sản phẩm (JSON)',
+  `order_total_amount` DECIMAL(15, 2) DEFAULT 0.00 COMMENT 'Tổng thành tiền đơn hàng (VNĐ)',
   INDEX `idx_sales_cust` (`sales_id`, `customer_id`),
   INDEX `idx_checkin_time` (`check_in_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -239,6 +244,7 @@ INSERT INTO `settings` (`setting_key`, `setting_value`, `description`) VALUES
 ('CARE_CYCLE_NORMAL', '7', 'Chu kỳ chăm sóc Khách thường (ngày)'),
 ('CARE_CYCLE_SMALL', '14', 'Chu kỳ chăm sóc Khách nhỏ (ngày)'),
 ('OVERDUE_WARNING_DAYS', '1', 'Số ngày cảnh báo sắp đến hạn (ngày)'),
-('GPS_RETENTION_DAYS', '90', 'Số ngày lưu giữ tọa độ GPS thô trước khi tự dọn (ngày)');
+('GPS_RETENTION_DAYS', '90', 'Số ngày lưu giữ tọa độ GPS thô trước khi tự dọn (ngày)'),
+('DAILY_VISIT_TARGET', '8', 'Mục tiêu số điểm bán cần ghé mỗi ngày làm việc');
 
 SET FOREIGN_KEY_CHECKS = 1;

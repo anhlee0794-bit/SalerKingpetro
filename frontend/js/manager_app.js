@@ -1373,14 +1373,49 @@ const ManagerApp = {
     const assignedUser = salesList.find(s => s.UserID === cust.AssignedSalesID);
     UI.hideLoading();
 
-    const visitHistoryRows = visits.map(v => `
+    const visitHistoryRows = visits.map(v => {
+      let geoBadgeHtml = `<span style="font-size: 0.72rem; background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px;">⚪ Không có GPS</span>`;
+      if (v.DistanceToCustomer !== null && v.DistanceToCustomer !== undefined) {
+        const distLabel = v.DistanceToCustomer >= 1000
+          ? `${(v.DistanceToCustomer / 1000).toFixed(2)} km`
+          : `${v.DistanceToCustomer}m`;
+        if (Number(v.IsWithinGeofence) === 1) {
+          geoBadgeHtml = `<span style="font-size: 0.72rem; background: #dcfce7; color: #15803d; padding: 2px 6px; border-radius: 4px; font-weight: 700;">🟢 Đúng vị trí (${distLabel})</span>`;
+        } else {
+          geoBadgeHtml = `<span style="font-size: 0.72rem; background: #ffedd5; color: #c2410c; padding: 2px 6px; border-radius: 4px; font-weight: 700;">🟠 Cách cửa hàng ${distLabel}</span>`;
+        }
+      }
+
+      const orderItems = Array.isArray(v.OrderItems) ? v.OrderItems : [];
+      const orderItemsHtml = orderItems.length > 0 ? `
+        <div style="margin-top: 0.4rem; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.78rem; color: #065f46;">
+          <strong>🛒 Chi tiết đơn chốt${v.OrderTotalAmount > 0 ? ` (${Number(v.OrderTotalAmount).toLocaleString('vi-VN')} đ)` : ''}:</strong>
+          <ul style="margin: 3px 0 0 1rem; padding: 0;">
+            ${orderItems.map(it => `<li>${it.productName}: <strong>${it.qty} ${it.unit}</strong>${it.subtotal > 0 ? ` (${Number(it.subtotal).toLocaleString('vi-VN')} đ)` : ''}</li>`).join("")}
+          </ul>
+        </div>
+      ` : '';
+
+      const photoHtml = v.PhotoUrl ? `
+        <div style="margin-top: 0.45rem;">
+          <a href="${v.PhotoUrl}" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none; font-size: 0.78rem; color: #2563eb; font-weight: 600;">
+            <img src="${v.PhotoUrl}" alt="Ảnh điểm bán" style="width: 64px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1;" />
+            <span>📷 Xem ảnh thực tế tại điểm bán</span>
+          </a>
+        </div>
+      ` : '';
+
+      return `
       <div style="border-left: 3px solid #2563eb; padding-left: 0.75rem; margin-bottom: 1rem; background: var(--bg-subtle); padding: 0.75rem; border-radius: 6px;">
-        <div style="display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--primary); font-weight: 700;">
-          <span style="display: inline-flex; align-items: center; gap: 0.35rem;">${Icons.render('user', { size: 14 })} ${v.salesName}</span>
-          <span>${v.checkInTime ? v.checkInTime.replace("T", " ").substring(0, 16) : '--'}</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.35rem; font-size: 0.82rem; color: var(--primary); font-weight: 700;">
+          <span style="display: inline-flex; align-items: center; gap: 0.35rem;">${Icons.render('user', { size: 14 })} ${v.salesName || v.SalesName}</span>
+          <div style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            ${geoBadgeHtml}
+            <span>${(v.checkInTime || v.CheckInTime) ? String(v.checkInTime || v.CheckInTime).replace("T", " ").substring(0, 16) : '--'}</span>
+          </div>
         </div>
         <div style="font-size: 0.85rem; margin-top: 4px; font-weight: 600;">
-          Thời lượng: ${v.duration || 'Đang gặp'} phút | Kết quả: <span style="color: #059669;">${v.result || '--'}</span>
+          Thời lượng: ${v.duration || v.Duration || 'Đang gặp'} phút | Kết quả: <span style="color: #059669;">${v.result || v.Result || '--'}</span>
         </div>
 
         <!-- 4-BLOCK HIGHLIGHTS -->
@@ -1394,19 +1429,21 @@ const ManagerApp = {
             <span style="display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 2px;">${Icons.render('trending-up', { size: 13, color: '#d97706' })} <strong>Đơn mới:</strong> ${v.NewOrderQty || 0} ${v.NewOrderUnit || 'Thùng'}</span>
           </div>
         </div>
-        ${v.SelectedProduct ? `
+        ${orderItemsHtml}
+        ${v.SelectedProduct && orderItems.length === 0 ? `
           <div style="font-size: 0.78rem; color: #1e40af; margin-top: 0.35rem; background: #f0f9ff; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.3rem;">
             ${Icons.render('package', { size: 12 })} Mặt hàng: <strong>${v.SelectedProduct}</strong>
           </div>
         ` : ''}
+        ${photoHtml}
 
-        ${v.DiscussionDetails || v.note ? `
+        ${v.DiscussionDetails || v.note || v.Note ? `
           <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; background: white; padding: 0.4rem; border-radius: 4px; border: 1px dashed var(--border); display: flex; align-items: flex-start; gap: 0.35rem;">
-            ${Icons.render('message-square', { size: 13 })} <div><strong>Trao đổi:</strong> ${v.DiscussionDetails || v.note}</div>
+            ${Icons.render('message-square', { size: 13 })} <div><strong>Trao đổi:</strong> ${v.DiscussionDetails || v.note || v.Note}</div>
           </div>
         ` : ''}
       </div>
-    `).join("");
+    `}).join("");
 
     const content = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -1545,8 +1582,9 @@ const ManagerApp = {
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">Ghé TB: ${r.avgTimePerVisit} phút/điểm</div>
           </td>
           <td>
-            <strong style="color: #059669;">+${r.totalNewOrders} Đơn mới</strong><br>
-            <span style="font-size: 0.78rem; color: var(--text-muted);">Đã giao: ${r.totalDistributed} SP</span>
+            <strong style="color: #059669;">+${r.totalNewOrders} SP đặt mới</strong><br>
+            ${r.totalOrderRevenue > 0 ? `<span style="font-size: 0.78rem; color: #047857; font-weight: 700;">${Number(r.totalOrderRevenue).toLocaleString('vi-VN')} đ</span><br>` : ''}
+            <span style="font-size: 0.76rem; color: var(--text-muted);">Đã giao: ${r.totalDistributed} SP</span>
           </td>
           <td>
             <strong>${r.totalFieldHours}h</strong> ngoài thị trường<br>
@@ -2915,6 +2953,7 @@ const ManagerApp = {
     const overdueWarn = Number(s.OVERDUE_WARNING_DAYS ?? 1);
     const proximityAlert = Number(s.PROXIMITY_ALERT_RADIUS ?? 100);
     const gpsRetentionDays = Number(s.GPS_RETENTION_DAYS ?? 90);
+    const dailyVisitTarget = Number(s.DAILY_VISIT_TARGET ?? 8);
 
     content.innerHTML = `
       <div style="padding: 0.25rem;">
@@ -3010,14 +3049,18 @@ const ManagerApp = {
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin-bottom: 0.85rem;">
               <div class="form-group">
-                <label class="form-label">Báo sắp đến hạn trước (Ngày)</label>
+                <label class="form-label" style="font-size:0.76rem;">Báo sắp hạn trước (Ngày)</label>
                 <input type="number" id="cfg-overdue-warn" class="form-control" value="${overdueWarn}" min="1" max="15" required />
               </div>
               <div class="form-group">
-                <label class="form-label">Cảnh báo trùng điểm gần (Mét)</label>
+                <label class="form-label" style="font-size:0.76rem;">Cảnh báo điểm gần (Mét)</label>
                 <input type="number" id="cfg-proximity-alert" class="form-control" value="${proximityAlert}" min="20" max="1000" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:0.76rem;">Chỉ tiêu ghé/ngày (Điểm)</label>
+                <input type="number" id="cfg-daily-target" class="form-control" value="${dailyVisitTarget}" min="1" max="50" required />
               </div>
             </div>
 
@@ -3055,7 +3098,8 @@ const ManagerApp = {
       PROXIMITY_ALERT_RADIUS: Number(document.getElementById("cfg-proximity-alert")?.value || 100),
       DWELL_RADIUS: Number(document.getElementById("cfg-dwell-radius")?.value || 30),
       DWELL_THRESHOLD_MINUTES: Number(document.getElementById("cfg-dwell-minutes")?.value || 5),
-      GPS_RETENTION_DAYS: Number(document.getElementById("cfg-gps-retention")?.value || 90)
+      GPS_RETENTION_DAYS: Number(document.getElementById("cfg-gps-retention")?.value || 90),
+      DAILY_VISIT_TARGET: Number(document.getElementById("cfg-daily-target")?.value || 8)
     };
 
     UI.showLoading("Đang lưu thông số cấu hình xuống MySQL...");

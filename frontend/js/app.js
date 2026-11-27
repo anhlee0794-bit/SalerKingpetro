@@ -224,7 +224,7 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261126g").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127a").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
@@ -749,6 +749,12 @@ const App = {
       UI.showToast(`Đăng nhập thành công! Xin chào ${normalizedUser.Name} (Lưu phiên 3 ngày)`, "success");
       this.showAuthenticatedApp();
       await this.applyUserRole(normalizedUser);
+      if (res.mustChangePassword && normalizedUser.Role !== "ADMIN") {
+        setTimeout(() => {
+          UI.showToast("Bạn đang dùng mật khẩu khởi tạo mặc định (123456). Vui lòng đặt mật khẩu cá nhân mới để bảo mật!", "warning");
+          this.showChangePasswordModal(true);
+        }, 400);
+      }
     } else {
       UI.showToast((res && res.message) || "Đăng nhập không thành công. Vui lòng kiểm tra lại email và mật khẩu!", "danger");
     }
@@ -931,37 +937,43 @@ const App = {
   /**
    * Modal đổi mật khẩu tài khoản hiện tại
    */
-  showChangePasswordModal() {
+  showChangePasswordModal(isForcedDefault = false) {
     if (!this.currentUser) return UI.showToast("Vui lòng đăng nhập trước!", "warning");
     const content = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <div style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: white; width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
             ${Icons.render('key', { size: 18, color: '#fff' })}
           </div>
           <div>
-            <h3 style="font-weight: 800; font-size: 1.15rem; color: var(--text-main); margin: 0;">Đổi Mật Khẩu</h3>
+            <h3 style="font-weight: 800; font-size: 1.15rem; color: var(--text-main); margin: 0;">${isForcedDefault ? 'Đặt Mật Khẩu Cá Nhân Lần Đầu' : 'Đổi Mật Khẩu'}</h3>
             <div style="font-size: 0.75rem; color: var(--text-muted);">${this.currentUser.Name} (${this.currentUser.Email})</div>
           </div>
         </div>
-        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+        ${isForcedDefault ? '' : '<button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>'}
       </div>
+
+      ${isForcedDefault ? `
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.8rem; color: #92400e;">
+          🔒 Tài khoản của bạn đang dùng mật khẩu mặc định <strong>123456</strong>. Vui lòng đổi sang mật khẩu riêng tối thiểu 6 ký tự trước khi bắt đầu làm việc!
+        </div>
+      ` : ''}
 
       <form onsubmit="event.preventDefault(); App.handleChangePassword();">
         <div class="form-group" style="margin-bottom: 0.85rem;">
           <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Mật khẩu hiện tại (*)</label>
-          <input type="password" id="change-pass-old" class="form-control" placeholder="Nhập mật khẩu hiện tại" required style="padding: 0.65rem 0.85rem;" />
+          <input type="password" id="change-pass-old" class="form-control" value="${isForcedDefault ? '123456' : ''}" placeholder="Nhập mật khẩu hiện tại" required style="padding: 0.65rem 0.85rem;" />
         </div>
         <div class="form-group" style="margin-bottom: 0.85rem;">
           <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Mật khẩu mới (*)</label>
-          <input type="password" id="change-pass-new" class="form-control" placeholder="Tối thiểu 6 ký tự" minlength="6" required style="padding: 0.65rem 0.85rem;" />
+          <input type="password" id="change-pass-new" class="form-control" placeholder="Tối thiểu 6 ký tự (khác 123456)" minlength="6" required style="padding: 0.65rem 0.85rem;" />
         </div>
         <div class="form-group" style="margin-bottom: 1.25rem;">
           <label class="form-label" style="font-size: 0.82rem; font-weight: 600;">Xác nhận mật khẩu mới (*)</label>
           <input type="password" id="change-pass-confirm" class="form-control" placeholder="Nhập lại mật khẩu mới" minlength="6" required style="padding: 0.65rem 0.85rem;" />
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-          <button type="button" onclick="UI.closeModal()" class="btn-action-inline" style="padding: 0.6rem 1.1rem;">Hủy</button>
+          ${isForcedDefault ? '' : '<button type="button" onclick="UI.closeModal()" class="btn-action-inline" style="padding: 0.6rem 1.1rem;">Hủy</button>'}
           <button type="submit" class="btn-action-inline" style="background: var(--primary); color: #fff; padding: 0.6rem 1.25rem; font-weight: 700; border: none; border-radius: 6px;">
             LƯU MẬT KHẨU MỚI
           </button>
@@ -981,6 +993,9 @@ const App = {
     }
     if (newPass.length < 6) {
       return UI.showToast("Mật khẩu mới phải có tối thiểu 6 ký tự!", "danger");
+    }
+    if (newPass === "123456") {
+      return UI.showToast("Mật khẩu mới không được trùng mật khẩu mặc định 123456!", "danger");
     }
     if (newPass !== confirmPass) {
       return UI.showToast("Mật khẩu xác nhận không trùng khớp!", "danger");

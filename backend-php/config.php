@@ -1,36 +1,79 @@
 <?php
 /**
  * CẤU HÌNH KẾT NỐI HỆ THỐNG SALERKINGPETRO (PHP + MYSQL)
- * Hosting BNIX / DirectAdmin
+ * Thông tin nhạy cảm (DB_PASS, AUTH_TOKEN_SECRET) được tách riêng sang file `config.local.php` (nằm trong .gitignore).
  */
 
-// Bật thông báo lỗi trong giai đoạn phát triển (tắt khi lên production nếu muốn)
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
-// Cấu hình Database MySQL trên Hosting của bạn (139.99.50.190)
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'luatdoan_kingpetrosaler');
-define('DB_USER', 'luatdoan_kingpetrosaler');
-define('DB_PASS', 'kingpetrosaler283147Aa@');
-define('DB_CHARSET', 'utf8mb4');
+// Nạp cấu hình bí mật riêng của máy chủ (không lưu trên Git)
+if (file_exists(__DIR__ . '/config.local.php')) {
+    require_once __DIR__ . '/config.local.php';
+}
 
-// Cấu hình URL Web App của Google Apps Script để tự động đồng bộ (Sync)
-// Nhập đường link Google Apps Script Web App của bạn vào đây (dạng https://script.google.com/macros/s/.../exec)
-define('GOOGLE_APPS_SCRIPT_URL', '');
+if (!defined('DB_HOST')) {
+    define('DB_HOST', getenv('SALER_DB_HOST') ?: 'localhost');
+}
+if (!defined('DB_NAME')) {
+    define('DB_NAME', getenv('SALER_DB_NAME') ?: 'saler_kingpetro');
+}
+if (!defined('DB_USER')) {
+    define('DB_USER', getenv('SALER_DB_USER') ?: 'root');
+}
+if (!defined('DB_PASS')) {
+    define('DB_PASS', getenv('SALER_DB_PASS') ?: '');
+}
+if (!defined('DB_CHARSET')) {
+    define('DB_CHARSET', 'utf8mb4');
+}
+
+// Cấu hình URL Web App của Google Apps Script để tự động đồng bộ (nếu dùng)
+if (!defined('GOOGLE_APPS_SCRIPT_URL')) {
+    define('GOOGLE_APPS_SCRIPT_URL', '');
+}
 
 // Cho phép đồng bộ sang Google Sheets ngầm (true: Bật đồng bộ, false: Chỉ lưu MySQL)
-define('SYNC_TO_GOOGLE_SHEETS', false);
+if (!defined('SYNC_TO_GOOGLE_SHEETS')) {
+    define('SYNC_TO_GOOGLE_SHEETS', false);
+}
 
 // Số ngày lưu giữ tọa độ GPS thô trong bảng gps_logs (Lịch sử chăm sóc bảng visits giữ vĩnh viễn)
-define('GPS_LOG_RETENTION_DAYS', 90);
+if (!defined('GPS_LOG_RETENTION_DAYS')) {
+    define('GPS_LOG_RETENTION_DAYS', 90);
+}
 
 // Thiết lập múi giờ Việt Nam
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 // Cấu hình Auth Token (JWT HS256) - Lưu phiên đăng nhập 3 ngày (259,200 giây)
-define('AUTH_TOKEN_TTL_SECONDS', 3 * 86400);
-define('AUTH_TOKEN_SECRET', 'KingPetro_Saler_JWT_Secret_2026_' . hash('sha256', DB_NAME . '|' . DB_PASS));
+if (!defined('AUTH_TOKEN_TTL_SECONDS')) {
+    define('AUTH_TOKEN_TTL_SECONDS', 3 * 86400);
+}
+if (!defined('AUTH_TOKEN_SECRET')) {
+    $envSecret = getenv('SALER_JWT_SECRET');
+    define('AUTH_TOKEN_SECRET', $envSecret ?: 'CHANGE_ME_IN_CONFIG_LOCAL_PHP');
+}
+
+/**
+ * Thiết lập CORS an toàn theo danh sách tên miền cho phép
+ */
+function applySecureCorsHeaders()
+{
+    $allowed = defined('ALLOWED_CORS_ORIGINS') && is_array(ALLOWED_CORS_ORIGINS)
+        ? ALLOWED_CORS_ORIGINS
+        : ['https://hiepphucduc.vn', 'https://www.hiepphucduc.vn', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if (!empty($origin) && in_array($origin, $allowed, true)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Vary: Origin');
+    } elseif (empty($origin)) {
+        header('Access-Control-Allow-Origin: https://hiepphucduc.vn');
+    }
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization');
+}
 
 /**
  * Mã hóa Base64 chuẩn URL-safe (dùng cho JWT)
@@ -76,14 +119,13 @@ function generateAuthToken(array $user, $ttlSeconds = AUTH_TOKEN_TTL_SECONDS)
 
     return [
         'token'      => $jwt,
-        'expiresAt'  => $exp * 1000, // Milliseconds cho JavaScript Date.now()
+        'expiresAt'  => $exp * 1000,
         'ttlSeconds' => (int)$ttlSeconds
     ];
 }
 
 /**
  * Xác thực chữ ký và hạn sử dụng của Auth Token (JWT HS256)
- * Trả về mảng payload nếu hợp lệ & còn hạn, ngược lại trả về null
  */
 function verifyAuthToken($token)
 {
@@ -109,7 +151,6 @@ function verifyAuthToken($token)
         return null;
     }
 
-    // Kiểm tra thời hạn 3 ngày
     if ((int)$payload['exp'] <= time()) {
         return null;
     }
@@ -136,7 +177,7 @@ function getDbConnection()
             http_response_code(500);
             echo json_encode([
                 'success' => false,
-                'message' => 'Lỗi kết nối cơ sở dữ liệu MySQL: ' . $e->getMessage()
+                'message' => 'Lỗi kết nối cơ sở dữ liệu MySQL.'
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }

@@ -13,6 +13,10 @@ const SalesApp = {
   settings: {},
   searchQuery: "",
   activeFilter: "ALL", // "ALL", "DUE", "ON_TRACK"
+  salesSubView: "route", // "route" | "my_stats"
+  mySummary: null,
+  careOrderItems: [],
+  carePhotoBase64: "",
 
   async init(user) {
     this.currentUser = user;
@@ -152,6 +156,96 @@ const SalesApp = {
     }
   },
 
+  async switchSalesSubView(view) {
+    this.salesSubView = view;
+    if (view === "my_stats") {
+      UI.showLoading("Đang tải kết quả cá nhân...");
+      const res = await ApiService.getSalesMySummary(this.currentUser.UserID);
+      UI.hideLoading();
+      if (res && res.success) {
+        this.mySummary = res;
+      }
+    }
+    this.render();
+  },
+
+  renderSalesTopTabsHtml() {
+    return `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; background: var(--bg-subtle); padding: 4px; border-radius: 10px; margin-bottom: 0.75rem; border: 1px solid var(--border);">
+        <button onclick="SalesApp.switchSalesSubView('route')" style="padding: 0.55rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; background: ${this.salesSubView === 'route' ? 'var(--primary)' : 'transparent'}; color: ${this.salesSubView === 'route' ? '#fff' : 'var(--text-muted)'};">
+          ${Icons.render('map-pin', { size: 14, color: this.salesSubView === 'route' ? '#fff' : 'currentColor' })} Tuyến Đi Hôm Nay
+        </button>
+        <button onclick="SalesApp.switchSalesSubView('my_stats')" style="padding: 0.55rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; background: ${this.salesSubView === 'my_stats' ? 'var(--primary)' : 'transparent'}; color: ${this.salesSubView === 'my_stats' ? '#fff' : 'var(--text-muted)'};">
+          ${Icons.render('bar-chart-3', { size: 14, color: this.salesSubView === 'my_stats' ? '#fff' : 'currentColor' })} Kết Quả Của Tôi
+        </button>
+      </div>
+    `;
+  },
+
+  renderMyStatsBodyHtml() {
+    const sum = this.mySummary || { dailyTarget: 8, today: { visits: 0, orderQty: 0, orderRevenue: 0, distributed: 0 }, month: { visits: 0, orderQty: 0, orderRevenue: 0, distributed: 0 }, recentVisits: [] };
+    const t = sum.today || {};
+    const m = sum.month || {};
+    const dailyTarget = Math.max(1, Number(sum.dailyTarget || 8));
+    const pctToday = Math.min(100, Math.round(((t.visits || 0) / dailyTarget) * 100));
+    const recent = sum.recentVisits || [];
+
+    const recentHtml = recent.map(v => {
+      let geoPill = `<span style="font-size: 0.7rem; color: #64748b; background: #f1f5f9; padding: 1px 6px; border-radius: 4px;">Không GPS</span>`;
+      if (v.DistanceToCustomer !== null && v.DistanceToCustomer !== undefined) {
+        const dTxt = v.DistanceToCustomer >= 1000 ? `${(v.DistanceToCustomer / 1000).toFixed(2)} km` : `${v.DistanceToCustomer}m`;
+        geoPill = Number(v.IsWithinGeofence) === 1
+          ? `<span style="font-size: 0.7rem; color: #15803d; background: #dcfce7; padding: 1px 6px; border-radius: 4px; font-weight: 700;">Đúng vị trí (${dTxt})</span>`
+          : `<span style="font-size: 0.7rem; color: #c2410c; background: #ffedd5; padding: 1px 6px; border-radius: 4px; font-weight: 700;">Cách ${dTxt}</span>`;
+      }
+      return `
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; margin-bottom: 0.6rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <strong style="font-size: 0.9rem; color: var(--text-main);">${v.CustomerName || v.CustomerID}</strong>
+            ${geoPill}
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">
+            ${String(v.CheckInTime || "").replace("T", " ").substring(0, 16)} • Thời lượng: <strong>${v.Duration || 1} phút</strong> • KQ: <strong style="color: #059669;">${v.Result || '--'}</strong>
+          </div>
+          <div style="font-size: 0.78rem; margin-top: 0.35rem; display: flex; gap: 0.65rem; flex-wrap: wrap; color: #1e40af;">
+            <span>Đơn mới: <strong>+${v.NewOrderQty || 0} ${v.NewOrderUnit || 'Thùng'}</strong>${v.OrderTotalAmount > 0 ? ` (${Number(v.OrderTotalAmount).toLocaleString('vi-VN')}đ)` : ''}</span>
+            <span>Giao: <strong>${v.DistributedQty || 0} ${v.DistributedUnit || 'Thùng'}</strong></span>
+            ${v.PhotoUrl ? `<span style="color: #7c3aed;">📷 Có ảnh</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="card-section" style="padding: 1rem; margin-bottom: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <strong style="font-size: 0.9rem; color: var(--text-main);">🎯 Tiến Độ Tuyến Hôm Nay</strong>
+          <strong style="font-size: 0.9rem; color: var(--primary);">${t.visits || 0} / ${dailyTarget} điểm (${pctToday}%)</strong>
+        </div>
+        <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem;">
+          <div style="width: ${pctToday}%; height: 100%; background: ${pctToday >= 80 ? '#10b981' : '#2563eb'};"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;">
+          <div style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 0.65rem; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: #047857; font-weight: 700;">ĐƠN CHỐT HÔM NAY</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #047857;">+${t.orderQty || 0} SP</div>
+            <div style="font-size: 0.75rem; color: #065f46;">${Number(t.orderRevenue || 0).toLocaleString('vi-VN')} đ</div>
+          </div>
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 0.65rem; border-radius: 8px;">
+            <div style="font-size: 0.72rem; color: #1d4ed8; font-weight: 700;">LŨY KẾ THÁNG NÀY</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #1d4ed8;">${m.visits || 0} lượt ghé</div>
+            <div style="font-size: 0.75rem; color: #1e40af;">+${m.orderQty || 0} SP • ${Number(m.orderRevenue || 0).toLocaleString('vi-VN')} đ</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-weight: 700; font-size: 0.9rem; margin: 0.75rem 0 0.5rem 0; color: var(--text-main);">
+        🕒 Lịch Sử Chăm Sóc Gần Nhất Của Bạn (${recent.length})
+      </div>
+      ${recentHtml || '<div style="text-align: center; padding: 1.5rem; color: var(--text-muted); background: var(--bg-card); border-radius: 8px; border: 1px dashed var(--border);">Bạn chưa có lượt chăm sóc nào hoàn tất.</div>'}
+    `;
+  },
+
   render() {
     const container = document.getElementById("sales-view-container");
     if (!container) return;
@@ -163,6 +257,17 @@ const SalesApp = {
       day: "numeric"
     }).format(new Date());
 
+    if (this.salesSubView === "my_stats") {
+      container.innerHTML = `
+        <div class="sales-mobile-container">
+          <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+          ${this.renderSalesTopTabsHtml()}
+          ${this.renderMyStatsBodyHtml()}
+        </div>
+      `;
+      return;
+    }
+
     if (!this.activeSession) {
       // ----------------------------------------------------
       // STATE: CHƯA BẮT ĐẦU
@@ -173,6 +278,7 @@ const SalesApp = {
       container.innerHTML = `
         <div class="sales-mobile-container">
           <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+          ${this.renderSalesTopTabsHtml()}
           <div class="greeting-card">
             <div class="greeting-text">
               <h2>Xin chào, ${this.currentUser.Name}</h2>
@@ -316,6 +422,7 @@ const SalesApp = {
                 <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                   <span class="customer-name">${c.CustomerName}</span>
                   <span class="customer-type-tag ${typeKey}">${typeLabel}</span>
+                  ${c.Status === 'PENDING_APPROVAL' ? `<span class="role-pill" style="background:#fef3c7;color:#b45309;border:1px solid #fde68a;font-size:0.68rem;padding:0.1rem 0.4rem;">Chờ QL duyệt</span>` : ''}
                   ${isCurrentActive ? `<span class="role-pill" style="background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;font-size:0.7rem;padding:0.1rem 0.4rem;">Đang ghé</span>` : ''}
                 </div>
                 <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; align-items: flex-start; gap: 0.35rem;">
@@ -352,6 +459,7 @@ const SalesApp = {
       container.innerHTML = `
         <div class="sales-mobile-container">
           <div id="sales-offline-banner-slot">${this.renderOfflineBannerHtml()}</div>
+          ${this.renderSalesTopTabsHtml()}
           <!-- GREETING BAR -->
           <div class="greeting-card">
             <div class="greeting-text">
@@ -492,15 +600,18 @@ const SalesApp = {
   // ACTION HANDLERS
   // ----------------------------------------------------
   async handleStartWork() {
-    UI.showLoading("Đang lấy tọa độ GPS khởi đầu...");
+    UI.showLoading("Đang lấy tọa độ GPS thực tế trên thiết bị...");
     try {
       let coords = null;
       try {
-        coords = await GeoService.getCurrentPosition();
+        coords = await GeoService.getReliablePosition(15000);
       } catch (gpsErr) {
-        console.warn("[SalesApp] Real GPS error, using device fallback coords:", gpsErr.message);
-        // Provide standard fallback coordinates if testing in browser with blocked GPS
-        coords = { lat: 10.7760, lng: 106.6950, accuracy: 15, speed: 0 };
+        UI.hideLoading();
+        UI.showToast(
+          gpsErr.message || "Không lấy được GPS! Vui lòng bật Vị trí (Location) trên điện thoại và cho phép trình duyệt truy cập GPS trước khi Bắt đầu ca.",
+          "error"
+        );
+        return;
       }
 
       const res = await ApiService.startWork(this.currentUser.UserID, coords.lat, coords.lng, coords.accuracy);
@@ -519,7 +630,7 @@ const SalesApp = {
         UI.showToast(
           res.queuedOffline
             ? "Đang yếu sóng 4G: Đã mở ca ngoại tuyến, sẽ tự đồng bộ khi có mạng!"
-            : "Bắt đầu ca làm việc thành công!",
+            : "Bắt đầu ca làm việc thành công! Đã bật theo dõi lộ trình & giữ sáng màn hình.",
           res.queuedOffline ? "warning" : "success"
         );
         this.startGpsTracking();
@@ -535,14 +646,14 @@ const SalesApp = {
 
   startGpsTracking() {
     const intervalMinutes = Number(this.settings.GPS_INTERVAL || 5);
+    const accLimit = Number(this.settings.GPS_ACCURACY_LIMIT || 80);
     GeoService.startTracking(
       intervalMinutes,
       async (updateData) => {
-        // Location updated
         if (this.activeSession) {
           const { coords, activity, isIntervalTick } = updateData;
-          if (isIntervalTick) {
-            // Send periodic GPS point to server
+          // Chỉ ghi lên Server khi tọa độ thực sự hợp lệ và sai số trong ngưỡng cho phép (#11)
+          if (isIntervalTick && coords && (coords.lat !== 0 || coords.lng !== 0) && (!coords.accuracy || coords.accuracy <= accLimit * 1.5)) {
             await ApiService.recordGps(
               this.activeSession.SessionID,
               this.currentUser.UserID,
@@ -553,13 +664,13 @@ const SalesApp = {
               activity
             );
           }
-          // Update UI badge if active
           this.updateActivityUI(activity, coords.accuracy);
         }
       },
       (err) => {
         console.warn("[SalesApp] GPS watch warning:", err.message);
-      }
+      },
+      this.settings
     );
 
     // Start Dwell Time engine after customers are loaded
@@ -675,9 +786,10 @@ const SalesApp = {
     try {
       let coords = { lat: 0, lng: 0, accuracy: 0 };
       try {
-        coords = await GeoService.getCurrentPosition();
+        coords = await GeoService.getReliablePosition(20000);
       } catch (e) {
-        coords = GeoService.lastPosition || { lat: 10.7760, lng: 106.6950, accuracy: 20 };
+        // Tuyệt đối không chèn tọa độ giả Quận 1; dùng vị trí thật cuối cùng trong ca (nếu có) hoặc để rỗng (0, 0)
+        coords = GeoService.lastPosition || { lat: 0, lng: 0, accuracy: 0 };
       }
 
       const res = await ApiService.endWork(this.activeSession.SessionID, this.currentUser.UserID, coords.lat, coords.lng, coords.accuracy);
@@ -819,23 +931,19 @@ const SalesApp = {
   },
 
   showCreateProspectModal() {
-    let coords = GeoService.lastPosition || { lat: 10.7760, lng: 106.6950, accuracy: 10 };
+    let coords = GeoService.lastPosition || { lat: 0, lng: 0, accuracy: 0 };
 
-    // Silently query GPS in background without freezing UI modal
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
-          const latInp = document.getElementById("prospect-lat");
-          const lngInp = document.getElementById("prospect-lng");
-          if (latInp) latInp.value = coords.lat.toFixed(6);
-          if (lngInp) lngInp.value = coords.lng.toFixed(6);
-          GeoService.setMiniMapPosition(coords.lat, coords.lng, 17);
-        },
-        () => { },
-        { timeout: 2500, maximumAge: 60000 }
-      );
-    }
+    // Truy vấn GPS thật ngầm để ghim đúng vị trí cửa hàng mới đang đứng
+    GeoService.getReliablePosition(20000)
+      .then(pos => {
+        coords = pos;
+        const latInp = document.getElementById("prospect-lat");
+        const lngInp = document.getElementById("prospect-lng");
+        if (latInp) latInp.value = coords.lat.toFixed(6);
+        if (lngInp) lngInp.value = coords.lng.toFixed(6);
+        GeoService.setMiniMapPosition(coords.lat, coords.lng, 17);
+      })
+      .catch(() => {});
 
     const content = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -954,31 +1062,36 @@ const SalesApp = {
   },
 
   /**
-   * [INTERNAL] Trigger manual checkin programmatically — no distance geofence block
-   * @param {string} customerId
+   * [INTERNAL] Check-in điểm bán với tọa độ GPS THẬT của thiết bị (không chặn khoảng cách nhưng ghi nhận trung thực 100%).
+   * Tuyệt đối KHÔNG lấy tọa độ đại lý gán giả làm tọa độ Sales!
    */
   async _autoCheckinCustomer(customerId) {
+    let realPos = null;
+    try {
+      realPos = await GeoService.getReliablePosition(20000);
+    } catch (e) {
+      realPos = GeoService.lastPosition || { lat: 0, lng: 0, accuracy: 0 };
+    }
+
     if (!this.activeSession) {
-      const fallbackPos = GeoService.lastPosition || { lat: 10.7760, lng: 106.6950, accuracy: 10 };
-      const sessRes = await ApiService.startWork(this.currentUser.UserID, fallbackPos.lat, fallbackPos.lng, fallbackPos.accuracy);
-      if (sessRes && sessRes.session) {
-        this.activeSession = sessRes.session;
+      if (realPos.lat !== 0 || realPos.lng !== 0) {
+        const sessRes = await ApiService.startWork(this.currentUser.UserID, realPos.lat, realPos.lng, realPos.accuracy);
+        if (sessRes && sessRes.session) {
+          this.activeSession = sessRes.session;
+          this.startGpsTracking();
+        }
       }
     }
-    const cust = this.customers.find(c => c.CustomerID === customerId);
-    const coords = GeoService.lastPosition || {
-      lat: cust && cust.Latitude ? Number(cust.Latitude) : 10.7760,
-      lng: cust && cust.Longitude ? Number(cust.Longitude) : 106.6950,
-      accuracy: 10
-    };
 
+    const arrivedIso = GeoService.getCustomerArrivalIso(customerId);
     const res = await ApiService.checkinVisit(
       this.currentUser.UserID,
       customerId,
-      this.activeSession ? this.activeSession.SessionID : ("SESS-" + Date.now()),
-      coords.lat,
-      coords.lng,
-      coords.accuracy
+      this.activeSession ? this.activeSession.SessionID : "",
+      realPos.lat,
+      realPos.lng,
+      realPos.accuracy,
+      arrivedIso
     );
 
     if (res && res.success) {
@@ -1150,11 +1263,151 @@ const SalesApp = {
     }
   },
 
+  // ----------------------------------------------------
+  // MULTI-PRODUCT ORDER CART & SITE PHOTO HELPERS (#12, #16)
+  // ----------------------------------------------------
+  renderOrderCartRowsHtml() {
+    if (!Array.isArray(this.careOrderItems) || this.careOrderItems.length === 0) {
+      this.careOrderItems = [{ productName: "", qty: "", unit: "Thùng", unitPrice: 0, subtotal: 0 }];
+    }
+    const rowsHtml = this.careOrderItems.map((item, idx) => `
+      <div style="background: #ffffff; border: 1px solid #a7f3d0; border-radius: 6px; padding: 0.45rem; margin-bottom: 0.45rem;">
+        <div style="display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.35rem;">
+          <select class="form-control" style="flex: 1; font-size: 0.78rem; padding: 0.38rem;" onchange="SalesApp.onOrderCartProductChange(${idx}, this.value)">
+            ${ProductService.renderProductOptions(item.productName)}
+          </select>
+          ${this.careOrderItems.length > 1 ? `
+            <button type="button" onclick="SalesApp.removeOrderCartRow(${idx})" style="border: none; background: #fee2e2; color: #b91c1c; border-radius: 5px; padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 700;" title="Xóa dòng">&times;</button>
+          ` : ''}
+        </div>
+        <div style="display: flex; gap: 0.35rem; align-items: center;">
+          <input type="number" min="0" class="form-control" style="flex: 1; font-size: 0.8rem; padding: 0.35rem 0.5rem;" placeholder="Số lượng" value="${item.qty}" oninput="SalesApp.onOrderCartQtyOrUnitChange(${idx}, this.value, null)" />
+          <select class="form-control" style="flex: 1; font-size: 0.8rem; padding: 0.35rem;" onchange="SalesApp.onOrderCartQtyOrUnitChange(${idx}, null, this.value)">
+            ${ProductService.renderUnitOptions(item.unit || "Thùng")}
+          </select>
+          <div id="order-row-sub-${idx}" style="flex: 1.1; text-align: right; font-size: 0.78rem; font-weight: 700; color: #047857;">
+            ${item.subtotal > 0 ? item.subtotal.toLocaleString("vi-VN") + "đ" : "--"}
+          </div>
+        </div>
+      </div>
+    `).join("");
+
+    const totalAmt = this.careOrderItems.reduce((acc, it) => acc + Number(it.subtotal || 0), 0);
+    const totalQty = this.careOrderItems.reduce((acc, it) => acc + (Number(it.qty) > 0 ? Number(it.qty) : 0), 0);
+
+    return `
+      ${rowsHtml}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem;">
+        <button type="button" onclick="SalesApp.addOrderCartRow()" style="border: 1px dashed #059669; background: #ffffff; color: #047857; border-radius: 6px; padding: 0.32rem 0.65rem; font-size: 0.76rem; font-weight: 700; cursor: pointer;">
+          + Thêm mặt hàng khác
+        </button>
+        <div id="care-order-cart-total" style="font-size: 0.8rem; font-weight: 800; color: #065f46;">
+          Tổng: ${totalQty} SP${totalAmt > 0 ? ` • ${totalAmt.toLocaleString("vi-VN")} đ` : ""}
+        </div>
+      </div>
+    `;
+  },
+
+  refreshOrderCartUi() {
+    const box = document.getElementById("care-order-cart-container");
+    if (box) {
+      box.innerHTML = this.renderOrderCartRowsHtml();
+    }
+  },
+
+  addOrderCartRow() {
+    this.careOrderItems.push({ productName: "", qty: "", unit: "Thùng", unitPrice: 0, subtotal: 0 });
+    this.refreshOrderCartUi();
+  },
+
+  removeOrderCartRow(idx) {
+    this.careOrderItems.splice(idx, 1);
+    this.refreshOrderCartUi();
+  },
+
+  onOrderCartProductChange(idx, prodName) {
+    const row = this.careOrderItems[idx];
+    if (!row) return;
+    row.productName = prodName;
+    const prod = ProductService.getCatalog().find(p => p.name === prodName);
+    if (prod && prod.defaultUnit) {
+      row.unit = prod.defaultUnit;
+    }
+    row.unitPrice = ProductService.estimateUnitPrice(prodName, row.unit);
+    row.subtotal = (Number(row.qty) > 0 ? Number(row.qty) : 0) * row.unitPrice;
+    this.refreshOrderCartUi();
+  },
+
+  onOrderCartQtyOrUnitChange(idx, newQty, newUnit) {
+    const row = this.careOrderItems[idx];
+    if (!row) return;
+    if (newQty !== null) row.qty = newQty;
+    if (newUnit !== null) row.unit = newUnit;
+    row.unitPrice = ProductService.estimateUnitPrice(row.productName, row.unit);
+    row.subtotal = (Number(row.qty) > 0 ? Number(row.qty) : 0) * row.unitPrice;
+    const subEl = document.getElementById(`order-row-sub-${idx}`);
+    if (subEl) {
+      subEl.innerText = row.subtotal > 0 ? row.subtotal.toLocaleString("vi-VN") + "đ" : "--";
+    }
+    const totalEl = document.getElementById("care-order-cart-total");
+    if (totalEl) {
+      const totalAmt = this.careOrderItems.reduce((acc, it) => acc + Number(it.subtotal || 0), 0);
+      const totalQty = this.careOrderItems.reduce((acc, it) => acc + (Number(it.qty) > 0 ? Number(it.qty) : 0), 0);
+      totalEl.innerText = `Tổng: ${totalQty} SP${totalAmt > 0 ? ` • ${totalAmt.toLocaleString("vi-VN")} đ` : ""}`;
+    }
+  },
+
+  handleCarePhotoSelected(inputEl) {
+    const file = inputEl && inputEl.files && inputEl.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 800;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxW) {
+          h = Math.round((h * maxW) / w);
+          w = maxW;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        this.carePhotoBase64 = canvas.toDataURL("image/jpeg", 0.68);
+        const previewBox = document.getElementById("care-photo-preview-box");
+        if (previewBox) {
+          previewBox.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.45rem; background: #f8fafc; padding: 0.4rem; border-radius: 8px; border: 1px solid var(--border);">
+              <img src="${this.carePhotoBase64}" alt="Preview" style="width: 68px; height: 52px; object-fit: cover; border-radius: 6px;" />
+              <div style="flex: 1; font-size: 0.75rem; color: #059669; font-weight: 700;">Đã đính kèm ảnh điểm bán (đã nén tối ưu 4G)</div>
+              <button type="button" onclick="SalesApp.clearCarePhoto()" style="border: none; background: #fee2e2; color: #b91c1c; border-radius: 5px; padding: 0.3rem 0.55rem; font-size: 0.72rem; cursor: pointer; font-weight: 700;">Xóa</button>
+            </div>
+          `;
+        }
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  },
+
+  clearCarePhoto() {
+    this.carePhotoBase64 = "";
+    const inp = document.getElementById("care-photo-input");
+    if (inp) inp.value = "";
+    const previewBox = document.getElementById("care-photo-preview-box");
+    if (previewBox) previewBox.innerHTML = "";
+  },
+
   showCareCheckoutModal(targetCustomerId = null) {
     const custId = targetCustomerId || (this.activeVisit && this.activeVisit.CustomerID);
     const cust = this.customers.find(c => c.CustomerID === custId) || (this.customers.length > 0 ? this.customers[0] : null);
     const custName = cust ? cust.CustomerName : "Khách hàng";
     const custStockUnit = (cust && cust.StockUnit) ? cust.StockUnit : "Thùng";
+    this.careOrderItems = [{ productName: "", qty: "", unit: "Thùng", unitPrice: 0, subtotal: 0 }];
+    this.carePhotoBase64 = "";
 
     const modalContent = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -1249,40 +1502,39 @@ const SalesApp = {
           </div>
         </div>
 
-        <!-- BLOCK C: KINH DOANH -->
+        <!-- BLOCK C: KINH DOANH & GIỎ ĐƠN NHIỀU MẶT HÀNG -->
         <div style="border: 1px solid #a7f3d0; background: #ecfdf5; padding: 0.85rem; border-radius: 8px;">
           <div style="font-weight: 700; font-size: 0.9rem; color: #047857; margin-bottom: 0.5rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-            ${Icons.render('trending-up', { size: 16, color: '#047857' })} C. KINH DOANH & ĐƠN HÀNG
+            ${Icons.render('shopping-cart', { size: 16, color: '#047857' })} C. ĐƠN HÀNG MỚI CHỐT (NHIỀU MẶT HÀNG)
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-            <!-- New Order Qty & Unit -->
-            <div class="form-group" style="margin-bottom: 0.4rem;">
-              <label class="form-label" style="font-size: 0.78rem;">Đơn hàng mới chốt</label>
-              <div style="display: flex; gap: 0.35rem;">
-                <input type="number" id="care-new-order" class="form-control" style="flex: 1.2; min-width: 0;" placeholder="SL đặt" oninput="SalesApp.updateUnitConversionHint('order')" />
-                <select id="care-order-unit" class="form-control" style="flex: 1.1; min-width: 0; padding: 0.4rem;" onchange="SalesApp.updateUnitConversionHint('order')">
-                  ${ProductService.renderUnitOptions("Thùng")}
-                </select>
-              </div>
-              <div id="care-order-convert-hint" style="font-size: 0.72rem; color: #047857; margin-top: 2px; min-height: 14px;"></div>
-            </div>
-            <div class="form-group" style="margin-bottom: 0.4rem;">
-              <label class="form-label" style="font-size: 0.78rem;">Tình hình tiêu thụ</label>
-              <select id="care-consumption" class="form-control">
-                <option value="Bình thường">Bình thường</option>
-                <option value="Bán rất chạy">Bán rất chạy</option>
-                <option value="Chậm">Chậm</option>
-                <option value="Mùa cao điểm">Mùa cao điểm</option>
-              </select>
-            </div>
+          <div id="care-order-cart-container" style="margin-bottom: 0.55rem;">
+            ${this.renderOrderCartRowsHtml()}
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.78rem;">Tình hình tiêu thụ tại đại lý</label>
+            <select id="care-consumption" class="form-control">
+              <option value="Bình thường">Bình thường</option>
+              <option value="Bán rất chạy">Bán rất chạy</option>
+              <option value="Chậm">Chậm</option>
+              <option value="Mùa cao điểm">Mùa cao điểm</option>
+            </select>
           </div>
         </div>
 
-        <!-- BLOCK D: CHĂM SÓC & TRAO ĐỔI -->
+        <!-- BLOCK D: CHĂM SÓC, ẢNH MINH CHỨNG & TRAO ĐỔI -->
         <div style="border: 1px solid var(--border); background: var(--bg-card); padding: 0.85rem; border-radius: 8px;">
           <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main); margin-bottom: 0.5rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-            ${Icons.render('message-square', { size: 16, color: '#334155' })} D. NỘI DUNG CHĂM SÓC & Ý KIẾN KHÁCH
+            ${Icons.render('message-square', { size: 16, color: '#334155' })} D. ẢNH ĐIỂM BÁN & NỘI DUNG TRAO ĐỔI
           </div>
+
+          <div class="form-group" style="margin-bottom: 0.65rem;">
+            <input type="file" id="care-photo-input" accept="image/*" capture="environment" style="display: none;" onchange="SalesApp.handleCarePhotoSelected(this)" />
+            <button type="button" onclick="document.getElementById('care-photo-input').click()" style="width: 100%; padding: 0.55rem; border: 1px dashed #2563eb; background: #eff6ff; color: #1d4ed8; border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              ${Icons.render('camera', { size: 16, color: '#1d4ed8' })} Chụp ảnh cửa hàng / kệ hàng thực tế
+            </button>
+            <div id="care-photo-preview-box"></div>
+          </div>
+
           <div class="form-group">
             <label class="form-label" style="font-size: 0.78rem;">Kết quả chung (*)</label>
             <select id="care-result" class="form-control">
@@ -1313,9 +1565,27 @@ const SalesApp = {
     this.updateUnitConversionHint('stock');
 
     document.getElementById("btn-submit-care").onclick = async () => {
+      const validOrderItems = (this.careOrderItems || [])
+        .filter(it => it.productName && Number(it.qty) > 0)
+        .map(it => ({
+          productName: it.productName,
+          qty: Number(it.qty),
+          unit: it.unit || "Thùng",
+          unitPrice: Number(it.unitPrice || 0),
+          subtotal: Number(it.subtotal || 0)
+        }));
+      const totalOrderQty = validOrderItems.reduce((a, it) => a + it.qty, 0);
+      const totalOrderAmt = validOrderItems.reduce((a, it) => a + it.subtotal, 0);
+      const mainSelectedProd = document.getElementById("care-product-select") ? document.getElementById("care-product-select").value : "";
+      const posNow = GeoService.lastPosition || { lat: 0, lng: 0, accuracy: 0 };
+
       const careData = {
         CustomerID: cust ? cust.CustomerID : "",
-        SelectedProduct: document.getElementById("care-product-select") ? document.getElementById("care-product-select").value : "",
+        Latitude: posNow.lat || 0,
+        Longitude: posNow.lng || 0,
+        Accuracy: posNow.accuracy || 0,
+        ArrivedAt: cust ? (GeoService.getCustomerArrivalIso(cust.CustomerID) || "") : "",
+        SelectedProduct: mainSelectedProd || validOrderItems.map(i => `${i.productName} (${i.qty} ${i.unit})`).join(", "),
         DistributedQty: document.getElementById("care-dist-qty").value,
         DistributedUnit: document.getElementById("care-dist-unit") ? document.getElementById("care-dist-unit").value : "Thùng",
         InventoryQty: document.getElementById("care-stock-qty").value,
@@ -1324,8 +1594,11 @@ const SalesApp = {
         ReorderUnit: document.getElementById("care-reorder-unit") ? document.getElementById("care-reorder-unit").value : "Thùng",
         RecordedDebt: document.getElementById("care-debt").value,
         PaymentStatus: document.getElementById("care-payment-status").value,
-        NewOrderQty: document.getElementById("care-new-order").value,
-        NewOrderUnit: document.getElementById("care-order-unit") ? document.getElementById("care-order-unit").value : "Thùng",
+        NewOrderQty: totalOrderQty,
+        NewOrderUnit: validOrderItems.length === 1 ? validOrderItems[0].unit : "SP",
+        OrderItems: validOrderItems,
+        OrderTotalAmount: totalOrderAmt,
+        PhotoBase64: this.carePhotoBase64 || "",
         ConsumptionRate: document.getElementById("care-consumption").value,
         Result: document.getElementById("care-result").value,
         DiscussionDetails: document.getElementById("care-discussion").value,
@@ -1342,6 +1615,8 @@ const SalesApp = {
       UI.hideLoading();
 
       if (res && res.success) {
+        if (cust) GeoService.clearCustomerArrival(cust.CustomerID);
+        this.carePhotoBase64 = "";
         UI.closeModal();
         this.stopVisitTimer();
         this.activeVisit = null;

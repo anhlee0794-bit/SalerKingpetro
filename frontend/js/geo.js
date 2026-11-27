@@ -8,9 +8,14 @@ const GeoService = {
   watchId: null,
   lastPosition: null,
   prevPosition: null,
+  anchorPosition: null,
+  trackingSettings: {},
   isTracking: false,
   trackingIntervalMs: 5 * 60 * 1000,
   intervalTimer: null,
+  wakeLockSentinel: null,
+  visibilityTrackingBound: false,
+  arrivalMap: {}, // { CustomerID: timestampMs } ghi nhận thời điểm thực tế Sales bước vào vùng điểm bán
 
   // Mock GPS state
   isMockGpsEnabled: false,
@@ -68,33 +73,37 @@ const GeoService = {
   },
 
   /**
-   * Classify movement activity based on speed, displacement, time delta, and accuracy
+   * Classify movement activity based on speed, anchor displacement over 25-60s window, and accuracy.
+   * Khắc phục triệt để lỗi watchPosition nhảy mỗi 1-2 giây làm distance < 30m bị nhận nhầm là ĐỨNG YÊN.
    */
-  classifyActivity(currentPos, previousPos, settings = {}) {
-    const accuracyLimit = settings.GPS_ACCURACY_LIMIT || 80;
-    const speedThreshold = settings.MOVING_SPEED_THRESHOLD || 1.2; // m/s
-    const stationaryDistanceThreshold = settings.STATIONARY_DISTANCE_THRESHOLD || 30; // meters
+  classifyActivity(currentPos, anchorOrPrevPos, settings = {}) {
+    const accuracyLimit = Number(settings.GPS_ACCURACY_LIMIT || 80);
+    const speedThreshold = Number(settings.MOVING_SPEED_THRESHOLD || 1.2); // m/s (~4.3 km/h)
+    const stationaryDistanceThreshold = Number(settings.STATIONARY_DISTANCE_THRESHOLD || 30); // meters
 
-    // 1. Check GPS accuracy limit
-    if (!currentPos.accuracy || currentPos.accuracy > accuracyLimit) {
+    // 1. Kiểm tra sai số GPS (lọc điểm nhiễu trong nhà / mất vệ tinh)
+    if (!currentPos || !currentPos.accuracy || Number(currentPos.accuracy) > accuracyLimit) {
       return "UNKNOWN";
     }
 
-    // 2. Hardware GPS reported speed
-    if (currentPos.speed !== null && currentPos.speed !== undefined && currentPos.speed >= speedThreshold) {
+    // 2. Ưu tiên tốc độ phần cứng từ chip GPS (khi chạy xe ngoài đường)
+    if (currentPos.speed !== null && currentPos.speed !== undefined && !isNaN(currentPos.speed) && Number(currentPos.speed) >= speedThreshold) {
       return "MOVING";
     }
 
-    // 3. Compare with previous GPS point
-    if (!previousPos) {
+    // 3. Đối chiếu với điểm neo (anchorPosition cách >= 25 giây trước đó)
+    if (!anchorOrPrevPos) {
       return "STATIONARY";
     }
 
-    const distance = this.calculateDistance(previousPos.lat, previousPos.lng, currentPos.lat, currentPos.lng);
-    const timeDeltaSeconds = Math.max(1, (currentPos.timestamp - previousPos.timestamp) / 1000);
+    const distance = this.calculateDistance(anchorOrPrevPos.lat, anchorOrPrevPos.lng, currentPos.lat, currentPos.lng);
+    const timeDeltaSeconds = Math.max(1, ((currentPos.timestamp || Date.now()) - (anchorOrPrevPos.timestamp || Date.now())) / 1000);
     const calculatedSpeed = distance / timeDeltaSeconds;
 
-    if (calculatedSpeed >= speedThreshold && distance > stationaryDistanceThreshold) {
+    if (distance >= stationaryDistanceThreshold && calculatedSpeed >= speedThreshold * 0.75) {
+      return "MOVING";
+    }
+    if (timeDeltaSeconds >= 10 && calculatedSpeed >= speedThreshold && distance >= 12) {
       return "MOVING";
     }
 
@@ -227,9 +236,9 @@ const GeoService = {
       }
 
       const geoOptions = {
-        enableHighAccuracy: true,
-        timeout: options.timeout || 15000,
-        maximumAge: options.maximumAge || 0
+        enableHighAccuracy: options.enableHighAccuracy !== undefined ? Boolean(options.enableHighAccuracy) : true,
+        timeout: options.timeout || 12000,
+        maximumAge: options.maximumAge !== undefined ? options.maximumAge : 0
       };
 
       navigator.geolocation.getCurrentPosition(
@@ -265,14 +274,82 @@ const GeoService = {
   },
 
   /**
+   * Acquire reliable device GPS: tries high-accuracy satellite first, then falls back to fast Wi-Fi/Cell network location.
+   * NEVER invents fake coordinates!
+   */
+  async getReliablePosition(maxAgeMs = 15000) {
+    try {
+      return await this.getCurrentPosition({ enableHighAccuracy: true, timeout: 9000, maximumAge: maxAgeMs });
+    } catch (err1) {
+      // Thử lại chế độ định vị trạm phát sóng / Wi-Fi (nhanh khi đứng dưới mái tôn cửa hàng)
+      return await this.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000, maximumAge: Math.max(maxAgeMs, 45000) });
+    }
+  },
+
+  async requestWakeLock() {
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    try {
+      if (!this.wakeLockSentinel) {
+        this.wakeLockSentinel = await navigator.wakeLock.request("screen");
+        this.wakeLockSentinel.addEventListener("release", () => {
+          this.wakeLockSentinel = null;
+        });
+      }
+    } catch (e) {
+      // Trình duyệt tiết kiệm pin có thể từ chối im lặng
+    }
+  },
+
+  async releaseWakeLock() {
+    if (this.wakeLockSentinel) {
+      try {
+        await this.wakeLockSentinel.release();
+      } catch (e) {}
+      this.wakeLockSentinel = null;
+    }
+  },
+
+  bindVisibilityTrackingResume() {
+    if (this.visibilityTrackingBound || typeof document === "undefined") return;
+    this.visibilityTrackingBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && this.isTracking) {
+        this.requestWakeLock();
+        this.pollLocation();
+        if (typeof ApiService !== "undefined" && typeof ApiService.flushOfflineQueue === "function") {
+          ApiService.flushOfflineQueue().catch(() => {});
+        }
+      }
+    });
+  },
+
+  getCustomerArrivalIso(customerId) {
+    const ts = this.arrivalMap && this.arrivalMap[customerId];
+    if (!ts) return null;
+    // Chỉ hợp lệ trong vòng 4 giờ gần nhất
+    if (Date.now() - ts > 4 * 3600 * 1000) return null;
+    return new Date(ts).toISOString();
+  },
+
+  clearCustomerArrival(customerId) {
+    if (customerId && this.arrivalMap) {
+      delete this.arrivalMap[customerId];
+    }
+  },
+
+  /**
    * Start continuous background GPS tracking for active sales work session
    */
-  startTracking(intervalMinutes = 5, onUpdateCallback, onErrorCallback) {
+  startTracking(intervalMinutes = 5, onUpdateCallback, onErrorCallback, settings = {}) {
+    this.trackingSettings = settings || this.trackingSettings || {};
     if (this.isTracking) return;
     this.isTracking = true;
-    this.trackingIntervalMs = intervalMinutes * 60 * 1000;
+    this.trackingIntervalMs = Math.max(1, Number(intervalMinutes || 5)) * 60 * 1000;
     this.onLocationUpdate = onUpdateCallback;
     this.onError = onErrorCallback;
+
+    this.requestWakeLock();
+    this.bindVisibilityTrackingResume();
 
     console.log(`[GeoService] Started GPS tracking with interval: ${intervalMinutes} min`);
 
@@ -311,7 +388,7 @@ const GeoService = {
    */
   async pollLocation() {
     try {
-      const coords = await this.getCurrentPosition();
+      const coords = await this.getReliablePosition(10000);
       this.processLocation(coords, true);
     } catch (err) {
       console.error("[GeoService] Poll error:", err.message);
@@ -320,15 +397,49 @@ const GeoService = {
   },
 
   /**
-   * Process and classify incoming GPS coordinate
+   * Process and classify incoming GPS coordinate using sliding anchor window
    */
   processLocation(coords, isIntervalTick = false) {
+    const now = coords.timestamp || Date.now();
+    coords.timestamp = now;
+
     this.prevPosition = this.lastPosition;
     this.lastPosition = coords;
 
-    const activity = this.classifyActivity(coords, this.prevPosition);
+    const activity = this.classifyActivity(coords, this.anchorPosition || this.prevPosition, this.trackingSettings);
     const activityChanged = activity !== this.currentActivity;
     this.currentActivity = activity;
+
+    // Cập nhật điểm neo (anchorPosition) mỗi 30 giây hoặc khi đã dịch chuyển quá ngưỡng đứng yên
+    const statDist = Number((this.trackingSettings && this.trackingSettings.STATIONARY_DISTANCE_THRESHOLD) || 30);
+    if (!this.anchorPosition) {
+      this.anchorPosition = { ...coords };
+    } else {
+      const elapsedSec = (now - (this.anchorPosition.timestamp || now)) / 1000;
+      const movedMeters = this.calculateDistance(this.anchorPosition.lat, this.anchorPosition.lng, coords.lat, coords.lng);
+      if (elapsedSec >= 30 || movedMeters >= statDist * 1.5) {
+        this.anchorPosition = { ...coords };
+      }
+    }
+
+    // Ghi nhận thời điểm thực tế tới vùng điểm bán (<= CUSTOMER_RADIUS, mặc định 200m) để tính đúng thời gian ghé thăm
+    const custRadius = Number((this.trackingSettings && this.trackingSettings.CUSTOMER_RADIUS) || 200);
+    if (this.dwellTracker && Array.isArray(this.dwellTracker.customers) && coords.accuracy <= Number(this.trackingSettings.GPS_ACCURACY_LIMIT || 120)) {
+      for (const c of this.dwellTracker.customers) {
+        const cLat = Number(c.Latitude);
+        const cLng = Number(c.Longitude);
+        if (!cLat || !cLng) continue;
+        const d = this.calculateDistance(coords.lat, coords.lng, cLat, cLng);
+        if (d <= custRadius) {
+          if (!this.arrivalMap[c.CustomerID]) {
+            this.arrivalMap[c.CustomerID] = now;
+          }
+        } else if (d > custRadius * 2 && this.arrivalMap[c.CustomerID]) {
+          // Đã rời xa điểm bán gấp đôi bán kính -> xóa mốc đến cũ
+          delete this.arrivalMap[c.CustomerID];
+        }
+      }
+    }
 
     if (this.onLocationUpdate) {
       this.onLocationUpdate({
@@ -466,7 +577,10 @@ const GeoService = {
     }
     this.lastPosition = null;
     this.prevPosition = null;
+    this.anchorPosition = null;
+    this.arrivalMap = {};
     this.currentActivity = "UNKNOWN";
+    this.releaseWakeLock();
     console.log("[GeoService] Stopped GPS tracking.");
   },
 

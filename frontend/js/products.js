@@ -118,9 +118,28 @@ const ProductService = {
     const activeList = this.getCatalog().filter(p => p.status !== "INACTIVE");
     html += activeList.map(p => {
       const isSel = (p.id === selectedId || p.name === selectedId) ? "selected" : "";
-      return `<option value="${p.name}" data-unit="${p.defaultUnit}" data-ratio="${p.ratio}" ${isSel}>${p.name} [ĐVT: ${p.defaultUnit}]</option>`;
+      const priceVal = Number(p.price !== undefined ? p.price : (p.BasePrice || 0));
+      const priceText = priceVal > 0 ? ` - ${priceVal.toLocaleString("vi-VN")}đ/${p.defaultUnit || "Thùng"}` : "";
+      return `<option value="${p.name}" data-unit="${p.defaultUnit || "Thùng"}" data-ratio="${p.ratio || 24}" data-price="${priceVal}" ${isSel}>${p.name} [${p.defaultUnit || "Thùng"}${priceText}]</option>`;
     }).join("");
-    html += `<option value="Sản phẩm khác">-- Sản phẩm khác / Nhập ngoài --</option>`;
+    html += `<option value="Sản phẩm khác" data-unit="Thùng" data-ratio="24" data-price="0">-- Sản phẩm khác / Nhập ngoài --</option>`;
     return html;
+  },
+
+  estimateUnitPrice(productName, chosenUnit = "Thùng") {
+    if (!productName) return 0;
+    const prod = this.getCatalog().find(p => p.name === productName || p.id === productName);
+    if (!prod) return 0;
+    const basePrice = Number(prod.price !== undefined ? prod.price : (prod.BasePrice || 0));
+    if (basePrice <= 0) return 0;
+    const defUnitName = prod.defaultUnit || prod.Unit || "Thùng";
+    if (defUnitName.toLowerCase() === (chosenUnit || "").toLowerCase()) {
+      return basePrice;
+    }
+    const defUnitObj = this.getUnitByName(defUnitName);
+    const chosenUnitObj = this.getUnitByName(chosenUnit);
+    const defRatio = Number(prod.ratio) || defUnitObj.baseRatio || 1;
+    const pricePerBase = basePrice / Math.max(1, defRatio);
+    return Math.round(pricePerBase * (chosenUnitObj.baseRatio || 1));
   }
 };

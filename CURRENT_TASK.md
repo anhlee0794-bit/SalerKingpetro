@@ -1,5 +1,23 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Xử Lý Toàn Diện Báo Cáo Thẩm Tra Quy Trình Sales, Trung Thực GPS & Mở Rộng Nghiệp Vụ (Hoàn Thành 2026-11-27)
+- [x] **1. Bảo mật Cấu hình & Đăng nhập (`config.local.php`, `api.php`, `app.js`)**:
+  - [x] Tách `DB_PASS` và khóa ký `AUTH_TOKEN_SECRET` độc lập sang `config.local.php` (git-ignored), bảo vệ bằng `.htaccess` (`403 Forbidden`) và giới hạn CORS theo tên miền.
+  - [x] Chống dò mật khẩu (khóa tạm 10 phút sau 5 lần sai liên tiếp) và tự động nhắc đổi mật khẩu cá nhân khi đăng nhập bằng mật khẩu khởi tạo `123456`.
+- [x] **2. Tính trung thực GPS, Đối soát khoảng cách & Chuẩn hóa Di chuyển (`geo.js`, `sales_app.js`, `api.php`)**:
+  - [x] Xóa bỏ hoàn toàn tọa độ giả Quận 1 (`10.7760, 106.6950`) và không lấy tọa độ đại lý gán cho Sales khi thiếu GPS.
+  - [x] Lưu khoảng cách thực tế `distance_meters` & cờ `is_within_geofence` vào `visits`, hiển thị trực quan trên Timeline và Lịch sử khách hàng.
+  - [x] Sửa thuật toán phân loại `MOVING` / `STATIONARY` theo cửa sổ điểm neo 30 giây (`anchorPosition`) áp dụng đúng cài đặt Admin, lọc bỏ điểm nhiễu sai số cao (`LOW_ACCURACY`), bật Screen Wake Lock giữ sáng màn hình và tự đóng ca treo qua đêm lúc 18:00.
+  - [x] Ghi nhận thời điểm thực tế Sales bước vào vùng điểm bán (`arrivedAt`) để tính chính xác thời lượng ghé thăm.
+- [x] **3. Hoàn thiện Nghiệp vụ Bán hàng Thực tế (`sales_app.js`, `manager_app.js`, `api.php`)**:
+  - [x] Giỏ đơn hàng nhiều mặt hàng (`order_items_json` + tự tính tổng tiền `order_total_amount`) trong Form Chăm Sóc.
+  - [x] Chụp ảnh thực tế cửa hàng / kệ trưng bày (nén `<canvas>` trên trình duyệt + lưu file ảnh an toàn trong `/api/uploads/visits/`).
+  - [x] Bổ sung Tab **📊 Kết Quả Của Tôi** cho nhân viên Sales xem tiến độ chỉ tiêu ngày (`DAILY_VISIT_TARGET = 8`), doanh số tháng và lịch sử chăm sóc cá nhân.
+  - [x] Kích hoạt luồng Quản lý duyệt điểm bán mới do Sales thêm (`PENDING_APPROVAL`), ẩn đại lý chưa phân tuyến khỏi Sales và chuyển sang Xóa mềm (`DELETED`) bảo toàn lịch sử đơn hàng.
+- [x] **4. Kiểm thử & Triển khai**: Pass **32/32** unit tests (`tests/test_logic.py`), đồng bộ FTP nguyên tử lên `hiepphucduc.vn` và cập nhật GitHub.
+- [ ] **Định hướng mở rộng tiếp theo (Tùy chọn Đợt 4)**: Đóng gói ứng dụng Android gốc (Capacitor APK + Background Geolocation) nếu muốn thu thập GPS liên tục ngay cả khi nhân viên khóa tắt màn hình bỏ điện thoại vào túi.
+
+
 ## Gia Cố Ổn Định Production Toàn Diện: Đồng Bộ API MySQL, Hàng Đợi Offline 4G, PWA & Bảo Mật Máy Chủ (Hoàn Thành 2026-11-26)
 - [x] **🔴 Ưu tiên 1 — Khớp 100% API Giao diện & MySQL (`backend-php/api.php`)**:
   - [x] Hoàn thiện `getManagerDashboard` trả đầy đủ `stats`, danh sách vị trí `sales` (`lastGps`) và `careAlerts` (Quá hạn, Sắp hạn, Công nợ cao, Tồn kho thấp).
