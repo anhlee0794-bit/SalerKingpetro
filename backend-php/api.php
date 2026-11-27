@@ -162,7 +162,6 @@ function formatVisitPayload(array $v)
         'DiscussionDetails'  => $v['discussion_details'] ?? '',
         'CustomerIssues'     => $v['customer_issues'] ?? '',
         'NextCareNeeds'      => $v['next_care_needs'] ?? '',
-        // camelCase aliases
         'visitId'            => $v['visit_id'],
         'salesId'            => $v['sales_id'],
         'salesName'          => $salesName,
@@ -281,9 +280,6 @@ function calcDistanceMeters($lat1, $lon1, $lat2, $lon2)
     return (int)round($R * 2 * atan2(sqrt($a), sqrt(1 - $a)));
 }
 
-/**
- * Tính khoảng cách đối soát giữa tọa độ Sales lúc Check-in và tọa độ Đại lý
- */
 function computeCustomerGeofence(PDO $pdo, $customerId, $salesLat, $salesLng, $radiusMeters = 200)
 {
     if (empty($customerId) || ((float)$salesLat == 0.0 && (float)$salesLng == 0.0)) {
@@ -309,17 +305,12 @@ function computeCustomerGeofence(PDO $pdo, $customerId, $salesLat, $salesLng, $r
     ];
 }
 
-/**
- * Lưu ảnh chụp thực tế tại điểm bán (Base64 JPEG nén từ trình duyệt -> file .jpg trên ổ đĩa hosting)
- * Giúp CSDL MySQL luôn nhẹ và tốc độ truy vấn cực nhanh.
- */
 function saveVisitPhotoToDisk($visitId, $photoData)
 {
     $raw = trim((string)$photoData);
     if (empty($raw)) {
         return null;
     }
-    // Nếu đã là URL đường dẫn tương đối thì giữ nguyên
     if (strpos($raw, 'data:image/') !== 0) {
         return strlen($raw) <= 500 ? $raw : null;
     }
@@ -329,7 +320,6 @@ function saveVisitPhotoToDisk($visitId, $photoData)
     }
     $ext = strtolower($matches[1]) === 'jpeg' ? 'jpg' : strtolower($matches[1]);
     $binary = base64_decode($matches[2], true);
-    // Giới hạn tối đa 2MB mỗi ảnh
     if ($binary === false || strlen($binary) > 2 * 1024 * 1024) {
         return null;
     }
@@ -339,7 +329,6 @@ function saveVisitPhotoToDisk($visitId, $photoData)
     if (!is_dir($visitDir)) {
         @mkdir($visitDir, 0755, true);
     }
-    // Bảo vệ thư mục uploads không cho phép thực thi bất kỳ file script .php nào
     $htFile = $uploadRoot . '/.htaccess';
     if (!file_exists($htFile)) {
         $htRules = "Options -Indexes\n<FilesMatch \"\\.(php|php5|php7|phtml|pl|py|cgi|sh)$\">\n    <IfModule mod_authz_core.c>\n        Require all denied\n    </IfModule>\n    <IfModule !mod_authz_core.c>\n        Order allow,deny\n        Deny from all\n    </IfModule>\n</FilesMatch>\n";
@@ -355,9 +344,6 @@ function saveVisitPhotoToDisk($visitId, $photoData)
     return null;
 }
 
-/**
- * Tự động nâng cấp cấu trúc bảng MySQL cho các cột mới (an toàn, chạy 1 lần mỗi tiến trình)
- */
 function ensureSchemaUpdates(PDO $pdo)
 {
     static $checked = false;
@@ -400,9 +386,6 @@ function ensureSchemaUpdates(PDO $pdo)
     } catch (Exception $e) {}
 }
 
-/**
- * Tự động đóng các ca làm việc WORKING bị quên kết thúc từ các ngày hôm trước (#8)
- */
 function closeStaleWorkSessions(PDO $pdo, $salesId = null)
 {
     $today = date('Y-m-d');
@@ -473,7 +456,6 @@ function purgeOldGpsLogs(PDO $pdo, $overrideDays = null)
         $cutoff = date('Y-m-d H:i:s', time() - ($days * 86400));
         $stmt = $pdo->prepare("DELETE FROM `gps_logs` WHERE `timestamp` < ?");
         $stmt->execute([$cutoff]);
-        // Dọn luôn log hệ thống cũ quá hạn để bảng logs luôn nhẹ
         $pdo->prepare("DELETE FROM `logs` WHERE `timestamp` < ?")->execute([$cutoff]);
         return [
             'deletedCount'  => $stmt->rowCount(),
@@ -485,15 +467,11 @@ function purgeOldGpsLogs(PDO $pdo, $overrideDays = null)
     }
 }
 
-/**
- * Lấy & tính toán trạng thái chu kỳ chăm sóc Khách hàng (Cô lập khách chưa phân tuyến đối với Sales)
- */
 function buildFormattedCustomers(PDO $pdo, $salesId = null, $role = 'MANAGER', $warningDays = 1)
 {
     if ($role === 'MANAGER' || $role === 'ADMIN' || empty($salesId)) {
         $stmt = $pdo->query("SELECT * FROM `customers` WHERE `status` != 'DELETED' ORDER BY `customer_name` ASC");
     } else {
-        // Sales chỉ nhìn thấy đại lý được gán trực tiếp cho mình (hoặc 'ALL'), kể cả điểm bán mới do chính mình vừa đề xuất (PENDING_APPROVAL)
         $stmt = $pdo->prepare("SELECT * FROM `customers` WHERE ((`status` = 'ACTIVE' AND (`assigned_sales_id` = ? OR `assigned_sales_id` = 'ALL')) OR (`status` = 'PENDING_APPROVAL' AND `assigned_sales_id` = ?)) ORDER BY `customer_name` ASC");
         $stmt->execute([$salesId, $salesId]);
     }
@@ -571,9 +549,6 @@ try {
     ensureSchemaUpdates($pdo);
 
     switch ($action) {
-        // =========================================================================
-        // 1. XÁC THỰC, RATE-LIMIT CHỐNG DÒ MẬT KHẨU & BẮT ĐỔI MẬT KHẨU MẶC ĐỊNH
-        // =========================================================================
         case 'login':
             $email = strtolower(trim((string)($params['email'] ?? '')));
             $password = trim((string)($params['password'] ?? ''));
@@ -585,7 +560,6 @@ try {
                 break;
             }
 
-            // Kiểm tra giới hạn đăng nhập sai: tối đa 5 lần sai trong 10 phút trên cùng IP + Email
             $failStmt = $pdo->prepare("SELECT COUNT(*) FROM `logs` WHERE `source` = 'AUTH_FAIL' AND `payload` = ? AND `timestamp` >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
             $failStmt->execute([$rateKey]);
             $recentFails = (int)$failStmt->fetchColumn();
@@ -605,7 +579,6 @@ try {
                 $isPasswordValid = false;
 
                 if (empty($storedPass)) {
-                    // Tài khoản mới khởi tạo chưa có hash -> chỉ chấp nhận chuỗi '123456' (không cho phép mật khẩu rỗng!)
                     if ($password === '123456') {
                         $isPasswordValid = true;
                         $hash = password_hash('123456', PASSWORD_BCRYPT);
@@ -620,7 +593,6 @@ try {
                 }
 
                 if ($isPasswordValid) {
-                    // Xóa lịch sử sai mật khẩu gần đây của cặp IP|Email này sau khi đăng nhập đúng
                     $pdo->prepare("DELETE FROM `logs` WHERE `source` = 'AUTH_FAIL' AND `payload` = ?")->execute([$rateKey]);
                     $tokenData = generateAuthToken($user, AUTH_TOKEN_TTL_SECONDS);
                     $isUsingDefaultPass = ($password === '123456');
@@ -740,9 +712,6 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
-        // =========================================================================
-        // 2. QUẢN TRỊ NHÂN SỰ, PHÂN TUYẾN & CÀI ĐẶT HỆ THỐNG
-        // =========================================================================
         case 'getUsers':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER']);
             $filterRole = $params['filterRole'] ?? null;
@@ -1020,14 +989,10 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
-        // =========================================================================
-        // 3. CA LÀM VIỆC & ĐỊNH VỊ GPS THỊ TRƯỜNG (TỰ ĐÓNG CA TREO + LỌC NHIỄU GPS)
-        // =========================================================================
         case 'getActiveSession':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER', 'SALES']);
             $salesId = resolveTargetSalesId($caller, $params['salesId'] ?? '');
 
-            // Tự động đóng ca cũ bị quên kết thúc từ ngày hôm trước (#8)
             closeStaleWorkSessions($pdo, $salesId);
 
             $stmt = $pdo->prepare("SELECT * FROM `work_sessions` WHERE `sales_id` = ? AND `status` = 'WORKING' AND `date` = ? ORDER BY `check_in_time` DESC LIMIT 1");
@@ -1060,11 +1025,9 @@ try {
             $now = resolveActionTimestamp($params);
             $today = substr($now, 0, 10);
 
-            // Tự động dọn rác GPS > 90 ngày & đóng mọi ca treo của các ngày trước (#8)
             purgeOldGpsLogs($pdo);
             closeStaleWorkSessions($pdo, $salesId);
 
-            // Không chấp nhận tọa độ 0,0 khi bắt đầu ca trực tuyến (bắt buộc bật định vị thật)
             if ($lat == 0.0 && $lng == 0.0 && empty($params['clientTimestamp'])) {
                 echo json_encode([
                     'success' => false,
@@ -1073,7 +1036,6 @@ try {
                 break;
             }
 
-            // Chỉ tái sử dụng ca nếu đúng là ca WORKING của chính ngày hôm nay ($today)
             $checkStmt = $pdo->prepare("SELECT * FROM `work_sessions` WHERE `sales_id` = ? AND `status` = 'WORKING' AND `date` = ? ORDER BY `check_in_time` DESC LIMIT 1");
             $checkStmt->execute([$salesId, $today]);
             $existingSess = $checkStmt->fetch();
@@ -1200,7 +1162,6 @@ try {
 
             $settings = loadSettingsMap($pdo);
             $accLimit = (float)($settings['GPS_ACCURACY_LIMIT'] ?? 80);
-            // Đánh dấu rõ điểm GPS sai số vượt ngưỡng (#11) để không tính nhầm vào thời gian đứng yên
             if ($acc > $accLimit || $status === 'UNKNOWN') {
                 $status = 'LOW_ACCURACY';
             }
@@ -1225,9 +1186,6 @@ try {
             echo json_encode(['success' => true, 'gpsLogId' => $gpsId, 'activityStatus' => $status], JSON_UNESCAPED_UNICODE);
             break;
 
-        // =========================================================================
-        // 4. KHÁCH HÀNG, ĐỐI SOÁT KHOẢNG CÁCH CHECK-IN, ẢNH & ĐƠN NHIỀU SẢN PHẨM
-        // =========================================================================
         case 'getCustomers':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER', 'SALES']);
             $settings = loadSettingsMap($pdo);
@@ -1275,7 +1233,6 @@ try {
             $debt = (float)($data['CurrentDebt'] ?? 0);
             $stock = (int)($data['CurrentStock'] ?? 0);
             $stockUnit = trim((string)($data['StockUnit'] ?? 'Thùng')) ?: 'Thùng';
-            // Điểm bán mới do Sales tự thêm sẽ ở trạng thái PENDING_APPROVAL để Quản lý duyệt chính thức (#14)
             $status = ($caller['role'] === 'SALES')
                 ? 'PENDING_APPROVAL'
                 : (trim((string)($data['Status'] ?? 'ACTIVE')) ?: 'ACTIVE');
@@ -1389,7 +1346,6 @@ try {
             break;
 
         case 'deleteCustomer':
-            // Xóa mềm (Soft Delete: status = 'DELETED') để bảo toàn 100% tên khách hàng trong lịch sử visits & doanh số (#18)
             requireAuth($pdo, $params, ['ADMIN', 'MANAGER']);
             $custId = trim((string)($params['customerId'] ?? ''));
             $chk = $pdo->prepare("SELECT `customer_name` FROM `customers` WHERE `customer_id` = ? AND `status` != 'DELETED' LIMIT 1");
@@ -1435,7 +1391,6 @@ try {
             $lng = (float)($params['lng'] ?? 0);
             $acc = (float)($params['accuracy'] ?? 0);
             $now = resolveActionTimestamp($params);
-            // Nếu thiết bị đã ghi nhận thời điểm thực tế Sales bước vào vùng điểm bán (arrivedAt), dùng làm check_in_time để tính đúng số phút ghé thăm (#9)
             $checkInTime = !empty($params['arrivedAt']) ? resolveActionTimestamp($params, 'arrivedAt') : $now;
             if (strtotime($checkInTime) > strtotime($now)) {
                 $checkInTime = $now;
@@ -1470,7 +1425,6 @@ try {
             $existVStmt->execute([$salesId, $customerId]);
             $existV = $existVStmt->fetch();
             if ($existV) {
-                // Nếu lượt cũ chưa có tọa độ mà lần này có GPS thật thì bổ sung đối soát khoảng cách
                 if ($existV['distance_meters'] === null && $geoAudit['distance'] !== null) {
                     $pdo->prepare("UPDATE `visits` SET `check_in_lat` = ?, `check_in_lng` = ?, `check_in_accuracy` = ?, `distance_meters` = ?, `is_within_geofence` = ? WHERE `visit_id` = ?")
                         ->execute([$lat, $lng, $acc, $geoAudit['distance'], $geoAudit['within'], $existV['visit_id']]);
@@ -1481,13 +1435,13 @@ try {
                 }
                 $existV['customer_name'] = $custName;
                 echo json_encode([
-                    'success'            => true,
-                    'visitId'            => $existV['visit_id'],
-                    'VisitID'            => $existV['visit_id'],
-                    'checkInTime'        => $existV['check_in_time'],
-                    'distanceMeters'     => $existV['distance_meters'],
-                    'isWithinGeofence'   => $existV['is_within_geofence'],
-                    'visit'              => formatVisitPayload($existV)
+                    'success'          => true,
+                    'visitId'          => $existV['visit_id'],
+                    'VisitID'          => $existV['visit_id'],
+                    'checkInTime'      => $existV['check_in_time'],
+                    'distanceMeters'   => $existV['distance_meters'],
+                    'isWithinGeofence' => $existV['is_within_geofence'],
+                    'visit'            => formatVisitPayload($existV)
                 ], JSON_UNESCAPED_UNICODE);
                 break;
             }
@@ -1599,7 +1553,6 @@ try {
                 return $default;
             };
 
-            // Xử lý Giỏ đơn hàng nhiều mặt hàng (#12)
             $rawOrderItems = $care['OrderItems'] ?? ($care['orderItems'] ?? ($params['OrderItems'] ?? ($params['orderItems'] ?? [])));
             if (is_string($rawOrderItems)) {
                 $rawOrderItems = json_decode($rawOrderItems, true) ?: [];
@@ -1717,7 +1670,6 @@ try {
                     ->execute([$visitId, $salesId, $customerId, $sessId, $arrivedStr, $dbLat, $dbLng, $dbAcc, $distMeters, $withinGeo]);
             }
 
-            // Lưu ảnh chụp thực tế xuống đĩa nếu có (#16)
             $savedPhotoUrl = saveVisitPhotoToDisk($visitId, $rawPhotoData);
             if ($savedPhotoUrl === null && $visit && !empty($visit['photo_url'])) {
                 $savedPhotoUrl = $visit['photo_url'];
@@ -1793,9 +1745,6 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
-        // =========================================================================
-        // 5. KẾT QUẢ CÁ NHÂN CHO SALES ("CỦA TÔI" - #17) & DASHBOARD / BÁO CÁO QUẢN LÝ
-        // =========================================================================
         case 'getSalesMySummary':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER', 'SALES']);
             $salesId = resolveTargetSalesId($caller, $params['salesId'] ?? '');
@@ -2062,7 +2011,6 @@ try {
             $gStmt = $pdo->prepare("SELECT * FROM `gps_logs` WHERE `session_id` IN ({$placeholders}) ORDER BY `timestamp` ASC, `log_id` ASC");
             $gStmt->execute($sessionIds);
             $allGpsLogs = array_map('formatGpsLogPayload', $gStmt->fetchAll());
-            // Chỉ giữ các điểm GPS đạt chuẩn độ chính xác để tính toán thời gian & dựng timeline sạch nhiễu (#11)
             $gpsLogs = array_values(array_filter($allGpsLogs, function ($g) use ($accLimit) {
                 return $g['ActivityStatus'] !== 'LOW_ACCURACY' && $g['ActivityStatus'] !== 'UNKNOWN' && ($g['Accuracy'] <= 0 || $g['Accuracy'] <= $accLimit);
             }));
@@ -2308,7 +2256,6 @@ try {
                     }
                 }
 
-                // Tính chỉ tiêu lượt ghé hợp lý theo kỳ thực tế (#13)
                 $assignedCount = count($assignedCusts);
                 if ($period === 'today') {
                     $targetVisits = $assignedCount > 0 ? min($assignedCount, $dailyTarget) : $dailyTarget;
@@ -2387,9 +2334,6 @@ try {
             ], JSON_UNESCAPED_UNICODE);
             break;
 
-        // =========================================================================
-        // 6. PHÊ DUYỆT ĐỀ XUẤT SỬA ĐỔI KHÁCH HÀNG & QUẢN LÝ HÀNG HÓA
-        // =========================================================================
         case 'requestCustomerUpdate':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER', 'SALES']);
             $salesId = resolveTargetSalesId($caller, $params['salesId'] ?? '');

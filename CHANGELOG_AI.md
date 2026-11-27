@@ -24,6 +24,7 @@
   - `frontend/index.html` & `frontend/sw.js`: Nâng version PWA cache `?v=20261127a`.
   - `tests/test_logic.py`: Bổ sung 3 bộ test mới (`test_anchor_movement_classification_and_geofence_audit`, `test_stale_overnight_session_auto_close_and_multi_item_order`, `test_login_rate_limiter_and_soft_delete_isolation`) — đạt **32/32 PASS**.
 - **Kết quả kiểm thử & xác minh**:
+  - Khắc phục thêm lỗi trộn dòng buffer IDE tại `backend-php/api.php` (dòng 86–89 bị đan xen chữ ký hàm `checkCallerAuthorization` cũ), ghi sạch lại file chuẩn không trùng hàm/case.
   - Chạy `python tests/test_logic.py` (**32/32 PASS**) & `node --check` trên toàn bộ 9 file JS (0 lỗi).
   - Đồng bộ nguyên tử FTP 14 file lên `https://hiepphucduc.vn/saler/` và kiểm tra E2E: `/api/config.php` & `/api/config.local.php` đều trả `HTTP 403`, `config.php` sạch mật khẩu 100%, `getManagerDashboard`, `getPerformanceReports(today)` (`targetVisits <= 8`), `getSalesMySummary` hoạt động chuẩn xác.
 
