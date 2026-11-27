@@ -65,6 +65,19 @@ const UI = {
     this.closeModal();
   },
 
+  copyText(text, label = "thông tin") {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.showToast(`Đã sao chép ${label}: ${text}`, "success");
+      }).catch(() => {
+        prompt(`Sao chép ${label}:`, text);
+      });
+    } else {
+      prompt(`Sao chép ${label}:`, text);
+    }
+  },
+
   showPhotoLightbox(photoUrl, caption = "Ảnh thực tế tại điểm bán") {
     if (!photoUrl) return;
     let lb = document.getElementById("photo-lightbox-overlay");
@@ -133,7 +146,9 @@ const App = {
       Email: raw.Email || raw.email || (matched && matched.Email) || "",
       Role: String(raw.Role || raw.role || (matched && matched.Role) || "SALES").toUpperCase(),
       Phone: raw.Phone || raw.phone || (matched && matched.Phone) || "",
-      Team: raw.Team || raw.team || (matched && matched.Team) || ""
+      Team: raw.Team || raw.team || (matched && matched.Team) || "",
+      TraccarDeviceID: raw.TraccarDeviceID || raw.traccarDeviceId || (matched && matched.TraccarDeviceID) || "",
+      TraccarServerUrl: raw.TraccarServerUrl || raw.traccarServerUrl || "https://hiepphucduc.vn/saler/api/traccar.php"
     };
   },
 
@@ -259,7 +274,7 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127i").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127j").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
@@ -1299,6 +1314,86 @@ const App = {
     } else {
       UI.showToast((res && res.message) || "Không thể đổi mật khẩu. Vui lòng kiểm tra lại mật khẩu cũ!", "danger");
     }
+  },
+
+  /**
+   * Hộp thoại hướng dẫn & lấy Mã kết nối GPS chạy ngầm khi tắt màn hình (Traccar Client - iOS & Android)
+   */
+  showTraccarSetupModal(targetUser = null, lastPingTime = null) {
+    const u = targetUser || this.currentUser;
+    if (!u) return;
+    const deviceId = u.TraccarDeviceID || u.traccarDeviceId || u.UserID || "";
+    const serverUrl = u.TraccarServerUrl || u.traccarServerUrl || "https://hiepphucduc.vn/saler/api/traccar.php";
+
+    const pingBanner = lastPingTime
+      ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;padding:0.6rem 0.85rem;border-radius:8px;font-size:0.8rem;font-weight:700;margin-bottom:0.9rem;">
+           🟢 Đã kết nối GPS ngầm thành công! Tín hiệu gần nhất: ${String(lastPingTime).substring(11, 16)} hôm nay.
+         </div>`
+      : `<div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:0.6rem 0.85rem;border-radius:8px;font-size:0.79rem;margin-bottom:0.9rem;line-height:1.45;">
+           💡 Cài đặt <strong>1 lần duy nhất</strong> (mất ~1 phút) để khi khóa tắt màn hình bỏ điện thoại vào túi chạy xe ngoài đường, hệ thống vẫn ghi nhận đầy đủ lộ trình.
+         </div>`;
+
+    const content = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.85rem;gap:0.5rem;">
+        <div>
+          <h3 style="margin:0;font-size:1.08rem;font-weight:800;color:var(--text-main);">📡 Cài Đặt GPS Chạy Ngầm Khi Tắt Màn Hình</h3>
+          <div style="font-size:0.76rem;color:var(--text-muted);margin-top:2px;">Nhân viên: <strong>${u.Name}</strong> (${u.UserID})</div>
+        </div>
+        <button type="button" onclick="UI.closeModal()" style="border:none;background:none;font-size:1.5rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+      </div>
+
+      ${pingBanner}
+
+      <!-- BƯỚC 1 -->
+      <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:10px;padding:0.8rem;margin-bottom:0.75rem;">
+        <div style="font-weight:800;font-size:0.85rem;color:var(--text-main);margin-bottom:0.45rem;">Bước 1: Tải ứng dụng miễn phí "Traccar Client"</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+          <a href="https://play.google.com/store/apps/details?id=org.traccar.client" target="_blank" rel="noopener" style="text-align:center;padding:0.5rem;background:#059669;color:#fff;border-radius:8px;text-decoration:none;font-size:0.78rem;font-weight:700;">
+            🤖 Tải cho Android (CH Play)
+          </a>
+          <a href="https://apps.apple.com/app/traccar-client/id843156974" target="_blank" rel="noopener" style="text-align:center;padding:0.5rem;background:#0284c7;color:#fff;border-radius:8px;text-decoration:none;font-size:0.78rem;font-weight:700;">
+            🍎 Tải cho iPhone (App Store)
+          </a>
+        </div>
+      </div>
+
+      <!-- BƯỚC 2 -->
+      <div style="background:var(--bg-subtle);border:1px solid var(--border);border-radius:10px;padding:0.8rem;margin-bottom:0.75rem;">
+        <div style="font-weight:800;font-size:0.85rem;color:var(--text-main);margin-bottom:0.5rem;">Bước 2: Sao chép & dán 2 dòng dưới đây vào Traccar Client</div>
+
+        <div style="margin-bottom:0.6rem;">
+          <div style="font-size:0.74rem;font-weight:700;color:var(--text-muted);margin-bottom:3px;">1. Mã định danh thiết bị (Device Identifier):</div>
+          <div style="display:flex;gap:0.4rem;">
+            <input type="text" readonly value="${deviceId}" class="form-control" style="font-family:monospace;font-weight:800;font-size:0.9rem;background:#fff;color:#1d4ed8;padding:0.45rem 0.65rem;" />
+            <button type="button" onclick="UI.copyText('${deviceId}', 'Mã thiết bị')" style="padding:0.45rem 0.75rem;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;font-size:0.78rem;cursor:pointer;white-space:nowrap;">
+              📋 Sao chép
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:0.5rem;">
+          <div style="font-size:0.74rem;font-weight:700;color:var(--text-muted);margin-bottom:3px;">2. URL Máy chủ (Server URL):</div>
+          <div style="display:flex;gap:0.4rem;">
+            <input type="text" readonly value="${serverUrl}" class="form-control" style="font-family:monospace;font-size:0.78rem;background:#fff;padding:0.45rem 0.65rem;" />
+            <button type="button" onclick="UI.copyText('${serverUrl}', 'URL Máy chủ')" style="padding:0.45rem 0.75rem;border-radius:8px;border:none;background:#2563eb;color:#fff;font-weight:700;font-size:0.78rem;cursor:pointer;white-space:nowrap;">
+              📋 Sao chép
+            </button>
+          </div>
+        </div>
+
+        <div style="font-size:0.75rem;color:var(--text-muted);">
+          • Mục <strong>Tần suất / Khoảng thời gian (Interval)</strong>: đặt <strong>300</strong> giây (5 phút) để tiết kiệm pin tối đa.
+        </div>
+      </div>
+
+      <!-- BƯỚC 3 -->
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:0.75rem 0.85rem;font-size:0.78rem;color:#166534;line-height:1.45;">
+        <strong>Bước 3:</strong> Gạt công tắc <strong>Trạng thái dịch vụ (Service Status) → BẬT</strong> và chọn quyền Vị trí <strong>"Luôn cho phép (Always Allow)"</strong>.<br>
+        <span style="color:#0f766e;">🔒 <strong>Bảo vệ riêng tư 100%:</strong> Bạn cứ để công tắc Bật cố định — hệ thống <strong>CHỈ ghi nhận vị trí khi bạn đang bấm Bắt đầu làm</strong> trên Web; sau khi bấm Kết thúc ca hoặc ngoài giờ làm, máy chủ tự động bỏ qua không lưu vị trí cá nhân.</span>
+      </div>
+    `;
+
+    UI.showModal(content);
   }
 };
 

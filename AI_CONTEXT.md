@@ -28,7 +28,7 @@ Hệ thống gồm 2 thành phần chính:
 ## 3. Trạng thái hiện tại
 - **Môi trường Production Thực Tế (Live Deployment)**:
   - Domain chính thức: `https://hiepphucduc.vn/saler/` (hỗ trợ cài đặt **PWA `standalone`** ra màn hình chính iOS/Android qua `manifest.json` & `sw.js`).
-  - Backend API: `https://hiepphucduc.vn/saler/api/api.php` (bảo vệ thư mục & file cấu hình nhạy cảm bằng `.htaccess` trả `403 Forbidden`).
+  - Backend API: `https://hiepphucduc.vn/saler/api/api.php` (kèm cổng nhận GPS chạy ngầm tắt màn hình `https://hiepphucduc.vn/saler/api/traccar.php` tương thích ứng dụng miễn phí **Traccar Client** trên iOS & Android; bảo vệ thư mục & file cấu hình nhạy cảm bằng `.htaccess` trả `403 Forbidden`).
   - Database: MySQL `luatdoan_kingpetrosaler` trên hosting cPanel (`139.99.50.190`), tự động dọn tọa độ `gps_logs` thô cũ quá 90 ngày trong khi lưu trữ vĩnh viễn lịch sử chăm sóc `visits`.
   - Web chính WordPress chạy tại: `https://hiepphucduc.vn/`.
   - Cơ chế xác thực & Bảo mật: Tách bí mật DB & khóa ký JWT riêng sang `config.local.php` (git-ignored); mật khẩu Bcrypt + Rate-limit chống dò pass (5 lần/10 phút) + bắt đổi mật khẩu mặc định `123456` + **JWT Auth Token (HS256)** bắt buộc trên 100% API đọc/ghi (`requireAuth`), lưu phiên **3 ngày (72 giờ)** và cô lập dữ liệu từng Sales.

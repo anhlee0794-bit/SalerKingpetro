@@ -2023,7 +2023,9 @@ const ManagerApp = {
         Role: (u.Role || u.role || "SALES").toUpperCase(),
         Phone: u.Phone || u.phone || "",
         Team: u.Team || u.team || "",
-        Status: (u.Status || u.status || "ACTIVE").toUpperCase()
+        Status: (u.Status || u.status || "ACTIVE").toUpperCase(),
+        TraccarDeviceID: u.TraccarDeviceID || u.traccarDeviceId || "",
+        TraccarServerUrl: u.TraccarServerUrl || u.traccarServerUrl || "https://hiepphucduc.vn/saler/api/traccar.php"
       }));
       allCustomers = (custRes && custRes.customers) || [];
       this.cachedUsersList = users;
@@ -2114,6 +2116,9 @@ const ManagerApp = {
               ${u.Role === 'SALES' ? `
                 <button class="btn-action-inline" onclick="ManagerApp.showReassignRouteModal('${u.UserID}')" title="Gán hoặc phân bổ lại tuyến khách hàng" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: #047857; background: #ecfdf5; border-color: #a7f3d0;">
                   ${Icons.render('map-pin', { size: 12 })} Phân tuyến
+                </button>
+                <button class="btn-action-inline" onclick="ManagerApp.showSalesTraccarModal('${u.UserID}')" title="Lấy mã cài GPS chạy ngầm tắt màn hình (Traccar Client)" style="padding: 0.32rem 0.55rem; font-size: 0.76rem; color: #4338ca; background: #eef2ff; border-color: #c7d2fe;">
+                  📡 GPS Ngầm
                 </button>
               ` : ''}
               ${!isRootSelf ? `
@@ -2218,6 +2223,14 @@ const ManagerApp = {
 
   showAddUserModal() {
     this.showUserFormModal(null);
+  },
+
+  showSalesTraccarModal(userId) {
+    const user = (this.cachedUsersList || []).find(u => u.UserID === userId);
+    if (!user) return UI.showToast("Không tìm thấy thông tin nhân sự!", "danger");
+    if (typeof App !== "undefined" && typeof App.showTraccarSetupModal === "function") {
+      App.showTraccarSetupModal(user, null);
+    }
   },
 
   showEditUserModal(userId) {

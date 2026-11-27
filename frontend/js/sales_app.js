@@ -17,6 +17,7 @@ const SalesApp = {
   mySummary: null,
   careOrderItems: [],
   carePhotoBase64: "",
+  lastTraccarPing: null,
 
   async init(user) {
     this.currentUser = user;
@@ -55,6 +56,12 @@ const SalesApp = {
       // Mất mạng tạm thời khi đã có phiên trên RAM -> Giữ nguyên ca làm việc, không tự ngắt ca
       return;
     }
+
+    if (res && res.traccarDeviceId && this.currentUser) {
+      this.currentUser.TraccarDeviceID = res.traccarDeviceId;
+      this.currentUser.TraccarServerUrl = res.traccarServerUrl || "https://hiepphucduc.vn/saler/api/traccar.php";
+    }
+    this.lastTraccarPing = (res && res.lastTraccarPing) || null;
 
     if (res && res.success && res.session) {
       this.activeSession = res.session;
@@ -214,6 +221,10 @@ const SalesApp = {
             <button type="button" class="sidebar-nav-item" onclick="App.closeMobileNav(); SalesApp.showCreateProspectModal()" title="Thêm Điểm Bán Mới">
               <span class="sidebar-item-icon">${Icons.render('plus-circle', { size: 19 })}</span>
               <span class="sidebar-item-label">Thêm Điểm Bán Mới</span>
+            </button>
+            <button type="button" class="sidebar-nav-item" onclick="App.closeMobileNav(); App.showTraccarSetupModal(SalesApp.currentUser, SalesApp.lastTraccarPing)" title="Cài GPS chạy ngầm khi tắt màn hình">
+              <span class="sidebar-item-icon">${Icons.render('navigation', { size: 19 })}</span>
+              <span class="sidebar-item-label">GPS Ngầm (Tắt Máy)</span>
             </button>
           </div>
         </nav>
@@ -582,9 +593,10 @@ const SalesApp = {
                   ĐANG HOẠT ĐỘNG (từ ${startTimeStr})
                 </div>
               </div>
-              <div style="font-size: 0.8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.3rem;">
-                ${Icons.render('navigation', { size: 12, color: '#059669' })} Tuyến tự động
-              </div>
+              <button type="button" onclick="App.showTraccarSetupModal(SalesApp.currentUser, SalesApp.lastTraccarPing)" style="border: 1px solid ${this.lastTraccarPing ? '#6ee7b7' : '#cbd5e1'}; background: ${this.lastTraccarPing ? '#ecfdf5' : '#ffffff'}; color: ${this.lastTraccarPing ? '#047857' : '#334155'}; border-radius: 999px; padding: 0.25rem 0.65rem; font-size: 0.74rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                ${Icons.render('navigation', { size: 12, color: this.lastTraccarPing ? '#059669' : '#2563eb' })}
+                ${this.lastTraccarPing ? 'GPS ngầm: Đang bật' : 'Cài GPS tắt máy'}
+              </button>
             </div>
 
             <!-- Clickable filter counters -->

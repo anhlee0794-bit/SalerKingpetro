@@ -6,21 +6,21 @@
  * - Tuyệt đối KHÔNG can thiệp các request POST hoặc /api/ (để ApiService Offline Queue xử lý chuẩn xác).
  */
 
-const CACHE_NAME = "kingpetro-saler-shell-v20261127i";
+const CACHE_NAME = "kingpetro-saler-shell-v20261127j";
 const APP_SHELL_FILES = [
   "./",
   "./index.html",
   "./manifest.json",
   "./icon.svg",
-  "./css/style.css?v=20261127i",
-  "./js/icons.js?v=20261127i",
-  "./js/geo.js?v=20261127i",
-  "./js/products.js?v=20261127i",
-  "./js/permissions.js?v=20261127i",
-  "./js/api.js?v=20261127i",
-  "./js/sales_app.js?v=20261127i",
-  "./js/manager_app.js?v=20261127i",
-  "./js/app.js?v=20261127i"
+  "./css/style.css?v=20261127j",
+  "./js/icons.js?v=20261127j",
+  "./js/geo.js?v=20261127j",
+  "./js/products.js?v=20261127j",
+  "./js/permissions.js?v=20261127j",
+  "./js/api.js?v=20261127j",
+  "./js/sales_app.js?v=20261127j",
+  "./js/manager_app.js?v=20261127j",
+  "./js/app.js?v=20261127j"
 ];
 
 self.addEventListener("install", (event) => {

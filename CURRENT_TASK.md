@@ -1,5 +1,14 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Tích Hợp Cổng GPS Chạy Ngầm Khi Tắt Màn Hình Qua Traccar Client iOS & Android (Hoàn Thành 2026-11-27)
+- [x] **1. Backend Receiver & Bảo mật PIN HMAC (`backend-php/traccar.php`, `config.php`, `api.php`)**:
+  - [x] Cổng nhận `traccar.php` tương thích cả JSON v8/v9 mới (`location.coords`, batch `locations`) và OsmAnd GET/POST.
+  - [x] Khóa xác thực `USR-XXX-PIN6` chống giả mạo, chỉ ghi tọa độ khi đang trong ca `WORKING` và tự động Check-in ngầm (Background Dwell Time) khi tắt màn hình đứng tại đại lý.
+- [x] **2. Hộp thoại Cài đặt 1 chạm trên Sales & Admin (`app.js`, `sales_app.js`, `manager_app.js`)**:
+  - [x] Nút `Cài GPS tắt máy` / `GPS Ngầm` kèm sao chép nhanh Mã thiết bị, URL Máy chủ và link tải App Store / CH Play.
+- [x] **3. Kiểm thử & Triển khai**: Pass **37/37** unit tests, đồng bộ FTP lên `hiepphucduc.vn` (`?v=20261127j`) và kiểm thử gói tin thực tế từ User-Agent `Dart`/`okhttp`/`CFNetwork` không bị ModSecurity chặn.
+
+
 ## Chuyển Hệ Thống Tab Sang Sidebar Dọc Bật/Tắt & Tối Ưu Giao Diện Điện Thoại (Hoàn Thành 2026-11-27)
 - [x] **1. Nút Icon Nav Bật/Tắt & Sidebar Dọc Trên Desktop (`index.html`, `app.js`, `manager_app.js`, `sales_app.js`)**:
   - [x] Gắn nút icon điều hướng góc trái Header để thu gọn Sidebar thành thanh Icon (`68px`) hoặc mở rộng đầy đủ (`252px`), tự lưu trạng thái và tự căn lại khung Bản đồ Leaflet.

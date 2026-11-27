@@ -1,5 +1,19 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Tích Hợp Cổng Nhận GPS Chạy Ngầm Khi Tắt Màn Hình (`traccar.php` — Tương Thích Traccar Client iOS & Android)
+- **Mục đích / Bối cảnh**: Giải quyết giới hạn đóng băng GPS khi khóa tắt màn hình của trình duyệt di động bằng cách mở cổng tiếp nhận trực tiếp tín hiệu từ ứng dụng mã nguồn mở miễn phí **Traccar Client** (App Store & CH Play) thẳng vào MySQL hiện tại.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/traccar.php` (Mới) & `backend-php/config.php` & `backend-php/api.php`:
+    - Sinh mã định danh thiết bị bảo mật kèm chữ ký HMAC 6 ký tự cho từng nhân viên (`generateTraccarDeviceId()` / `verifyTraccarDeviceId()`, ví dụ `USR-002-XXXXXX`), chặn tuyệt đối việc người lạ đoán mã bắn tọa độ giả.
+    - Giải mã đầy đủ cả chuẩn JSON mới của Traccar Client v8/v9 (`location.coords`, mảng batch `locations`) lẫn giao thức OsmAnd GET/POST truyền thống.
+    - **Bảo vệ riêng tư ngoài giờ**: Chỉ ghi tọa độ vào `gps_logs` (`GPS-TRC-*`) khi nhân viên đang mở ca `WORKING` trong ngày; ngoài ca trả `HTTP 200 (NO_ACTIVE_SHIFT)` để app xóa đệm mà không lưu vị trí cá nhân.
+    - Khử trùng lặp thông minh (`< 35s` & `< 15m`) khi màn hình đang bật song song trình duyệt, đồng thời hỗ trợ **Tự động Check-in ngầm (Background Dwell Time)** ngay cả khi khóa máy bỏ túi đứng tại đại lý đủ thời gian.
+  - `frontend/js/app.js`, `frontend/js/sales_app.js`, `frontend/js/manager_app.js`, `frontend/index.html`, `frontend/sw.js`:
+    - Thêm hộp thoại `App.showTraccarSetupModal()` kèm nút sao chép 1 chạm (`Mã thiết bị` + `URL Máy chủ`), link tải App Store / CH Play, đèn báo `GPS ngầm: Đang bật` trên thẻ ca làm của Sales và nút `📡 GPS Ngầm` trong Tab Quản trị Nhân sự của Admin (`?v=20261127j`).
+  - `tests/test_logic.py` & `AI_CONTEXT.md`: Bổ sung `test_traccar_background_gps_hmac_pin_and_shift_privacy` (**37/37 PASS**).
+- **Kết quả kiểm thử & xác minh**:
+  - Pass **37/37** unit tests, `node --check` 9/9 file JS sạch lỗi, đồng bộ FTP nguyên tử `traccar.php` lên `hiepphucduc.vn` và kiểm thử trực tiếp gói tin JSON của Android (`okhttp` / `Dart`) & iOS (`CFNetwork`) đạt `HTTP 200 OK`.
+
 ## [2026-11-27] - Chuyển Đổi Giao Diện Hệ Thống Tab Sang Sidebar Dọc Thu Gọn/Mở Rộng & Tối Ưu Toàn Diện Cho Điện Thoại
 - **Mục đích / Bối cảnh**: Thay thế thanh Tab ngang dài (dễ bị tràn thanh cuộn ngang trên màn hình nhỏ) bằng hệ thống **Sidebar dọc** phân nhóm trực quan kèm nút icon bật/tắt ngay góc trái Header, đồng thời tối ưu trải nghiệm ngăn kéo trượt (Slide-over Drawer) và bố cục responsive cho điện thoại di động.
 - **Các file thay đổi (Affected Files)**:

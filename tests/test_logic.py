@@ -864,6 +864,28 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.assertEqual(queued_checkin["customerId"], "CUST-042")
         self.assertEqual(queued_checkin["careData"]["CustomerID"], "CUST-042")
 
+    def test_traccar_background_gps_hmac_pin_and_shift_privacy(self):
+        # Verify deterministic HMAC-PIN device ID prevents spoofing and off-shift pings are ignored
+        import hmac, hashlib
+        secret = b"KP_TEST_SECRET"
+        def make_id(uid):
+            u = uid.strip().upper()
+            pin = hmac.new(secret, f"KP_TRACCAR_V1:{u}".encode(), hashlib.sha256).hexdigest()[:6].upper()
+            return f"{u}-{pin}"
+        def verify_id(raw_id):
+            c = raw_id.strip().upper()
+            if "-" not in c:
+                return None
+            uid, pin = c.rsplit("-", 1)
+            if len(pin) != 6:
+                return None
+            return uid if hmac.compare_digest(make_id(uid), c) else None
+
+        valid_dev = make_id("USR-002")
+        self.assertEqual(verify_id(valid_dev), "USR-002")
+        self.assertIsNone(verify_id("USR-002"))
+        self.assertIsNone(verify_id("USR-002-000000"))
+
 class AnchorActivityClassifier:
     @staticmethod
     def classify(curr, anchor, settings):

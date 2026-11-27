@@ -159,6 +159,55 @@ function verifyAuthToken($token)
 }
 
 /**
+ * Sinh Mã Định Danh Thiết Bị (Device Identifier) kèm PIN HMAC 6 ký tự chống giả mạo cho ứng dụng Traccar Client (iOS / Android)
+ * Ví dụ: USR-002-8F3A1C
+ */
+function generateTraccarDeviceId($userId)
+{
+    $cleanId = strtoupper(trim((string)$userId));
+    if ($cleanId === '') {
+        return '';
+    }
+    $pin = strtoupper(substr(hash_hmac('sha256', 'KP_TRACCAR_V1:' . $cleanId, AUTH_TOKEN_SECRET), 0, 6));
+    return $cleanId . '-' . $pin;
+}
+
+/**
+ * Xác thực Mã Định Danh Thiết Bị từ Traccar Client gửi lên và trả về user_id gốc nếu hợp lệ
+ */
+function verifyTraccarDeviceId($rawDeviceId)
+{
+    $clean = strtoupper(trim((string)$rawDeviceId));
+    $lastDash = strrpos($clean, '-');
+    if ($lastDash === false || $lastDash < 1) {
+        return null;
+    }
+    $userId = substr($clean, 0, $lastDash);
+    $pin = substr($clean, $lastDash + 1);
+    if (strlen($pin) !== 6) {
+        return null;
+    }
+    $expectedFull = generateTraccarDeviceId($userId);
+    if (!hash_equals($expectedFull, $clean)) {
+        return null;
+    }
+    return $userId;
+}
+
+/**
+ * Trả về URL đầy đủ của cổng nhận GPS ngầm Traccar Client
+ */
+function getTraccarServerUrl()
+{
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'https';
+        $scriptDir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/saler/api/api.php')), '/');
+        return $scheme . '://' . $_SERVER['HTTP_HOST'] . $scriptDir . '/traccar.php';
+    }
+    return 'https://hiepphucduc.vn/saler/api/traccar.php';
+}
+
+/**
  * Khởi tạo kết nối PDO MySQL
  */
 function getDbConnection()

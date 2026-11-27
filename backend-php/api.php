@@ -56,22 +56,28 @@ function writeSystemLog(PDO $pdo, $level, $source, $message, $payload = null)
  */
 function formatUserPayload(array $user)
 {
+    $traccarId = generateTraccarDeviceId($user['user_id']);
+    $traccarUrl = getTraccarServerUrl();
     return [
-        'UserID'    => $user['user_id'],
-        'Name'      => $user['name'],
-        'Email'     => $user['email'],
-        'Role'      => $user['role'],
-        'Phone'     => $user['phone'] ?? '',
-        'Team'      => $user['team'] ?? '',
-        'Status'    => $user['status'] ?? 'ACTIVE',
-        'CreatedAt' => $user['created_at'] ?? null,
-        'userId'    => $user['user_id'],
-        'name'      => $user['name'],
-        'email'     => $user['email'],
-        'role'      => $user['role'],
-        'phone'     => $user['phone'] ?? '',
-        'team'      => $user['team'] ?? '',
-        'status'    => $user['status'] ?? 'ACTIVE'
+        'UserID'           => $user['user_id'],
+        'Name'             => $user['name'],
+        'Email'            => $user['email'],
+        'Role'             => $user['role'],
+        'Phone'            => $user['phone'] ?? '',
+        'Team'             => $user['team'] ?? '',
+        'Status'           => $user['status'] ?? 'ACTIVE',
+        'CreatedAt'        => $user['created_at'] ?? null,
+        'TraccarDeviceID'  => $traccarId,
+        'TraccarServerUrl' => $traccarUrl,
+        'userId'           => $user['user_id'],
+        'name'             => $user['name'],
+        'email'            => $user['email'],
+        'role'             => $user['role'],
+        'phone'            => $user['phone'] ?? '',
+        'team'             => $user['team'] ?? '',
+        'status'           => $user['status'] ?? 'ACTIVE',
+        'traccarDeviceId'  => $traccarId,
+        'traccarServerUrl' => $traccarUrl
     ];
 }
 
@@ -1001,6 +1007,7 @@ try {
             $session = $stmt->fetch();
 
             $activeVisit = null;
+            $lastTraccarPing = null;
             if ($session) {
                 $vStmt = $pdo->prepare("SELECT v.*, c.`customer_name` FROM `visits` v LEFT JOIN `customers` c ON v.`customer_id` = c.`customer_id` WHERE v.`sales_id` = ? AND v.`status` = 'IN_PROGRESS' ORDER BY v.`check_in_time` DESC LIMIT 1");
                 $vStmt->execute([$salesId]);
@@ -1008,12 +1015,22 @@ try {
                 if ($vRow) {
                     $activeVisit = formatVisitPayload($vRow);
                 }
+
+                $trcStmt = $pdo->prepare("SELECT `timestamp`, `latitude`, `longitude`, `activity_status` FROM `gps_logs` WHERE `session_id` = ? AND `gps_log_id` LIKE 'GPS-TRC-%' ORDER BY `timestamp` DESC LIMIT 1");
+                $trcStmt->execute([$session['session_id']]);
+                $trcRow = $trcStmt->fetch();
+                if ($trcRow) {
+                    $lastTraccarPing = $trcRow['timestamp'];
+                }
             }
 
             echo json_encode([
-                'success'     => true,
-                'session'     => $session ? formatSessionPayload($session) : null,
-                'activeVisit' => $activeVisit
+                'success'          => true,
+                'session'          => $session ? formatSessionPayload($session) : null,
+                'activeVisit'      => $activeVisit,
+                'lastTraccarPing'  => $lastTraccarPing,
+                'traccarDeviceId'  => generateTraccarDeviceId($salesId),
+                'traccarServerUrl' => getTraccarServerUrl()
             ], JSON_UNESCAPED_UNICODE);
             break;
 
