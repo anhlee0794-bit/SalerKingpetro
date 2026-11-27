@@ -2401,13 +2401,14 @@ try {
                     'RejectReason'   => $r['reject_reason']
                 ];
             }
-            echo json_encode(['success' => true, 'requests' => $result], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['success' => true, 'requests' => $result, 'data' => $result], JSON_UNESCAPED_UNICODE);
             break;
 
         case 'resolveCustomerUpdateRequest':
             $caller = requireAuth($pdo, $params, ['ADMIN', 'MANAGER']);
             $reqId = trim((string)($params['requestId'] ?? ''));
-            $isApproved = !empty($params['isApproved']);
+            $rawDecision = $params['isApproved'] ?? ($params['decision'] ?? false);
+            $isApproved = ($rawDecision === true || $rawDecision === 1 || $rawDecision === '1' || strtoupper(trim((string)$rawDecision)) === 'APPROVE' || strtoupper(trim((string)$rawDecision)) === 'TRUE');
             $rejectReason = $params['rejectReason'] ?? null;
             $approverName = trim((string)($params['approverName'] ?? $caller['name'])) ?: $caller['name'];
             $now = date('Y-m-d H:i:s');
@@ -2429,7 +2430,7 @@ try {
                 $fields = [];
                 $values = [];
 
-                $newContact = $newData['ContactName'] ?? ($newData['contactName'] ?? null);
+                $newContact = $newData['ContactName'] ?? ($newData['contactName'] ?? ($newData['ContactPerson'] ?? null));
                 if ($newContact !== null) {
                     $fields[] = "`contact_name` = ?";
                     $values[] = trim((string)$newContact);
@@ -2454,10 +2455,20 @@ try {
                             'NORMAL' => (int)($settings['CARE_CYCLE_NORMAL'] ?? 7),
                             'SMALL'  => (int)($settings['CARE_CYCLE_SMALL'] ?? 14)
                         ];
+                        $newCycle = $cycleMap[$cleanType];
                         $fields[] = "`customer_type` = ?";
                         $values[] = $cleanType;
                         $fields[] = "`care_cycle_days` = ?";
-                        $values[] = $cycleMap[$cleanType];
+                        $values[] = $newCycle;
+
+                        // Tính lại ngày hẹn chăm sóc tiếp theo ngay khi đổi hạng khách
+                        $cLastStmt = $pdo->prepare("SELECT `last_care_date` FROM `customers` WHERE `customer_id` = ? LIMIT 1");
+                        $cLastStmt->execute([$req['customer_id']]);
+                        $cLastRow = $cLastStmt->fetch();
+                        if ($cLastRow && !empty($cLastRow['last_care_date'])) {
+                            $fields[] = "`next_care_date` = ?";
+                            $values[] = date('Y-m-d H:i:s', strtotime($cLastRow['last_care_date']) + ($newCycle * 86400));
+                        }
                     }
                 }
                 $newNote = $newData['Note'] ?? ($newData['note'] ?? null);

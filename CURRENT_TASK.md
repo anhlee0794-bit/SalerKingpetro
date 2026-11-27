@@ -1,5 +1,19 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Rà Soát Chéo Quy Trình Nghiệp Vụ Đầu-Cuối & Sửa 6 Điểm Đứt Luồng Vận Hành (Hoàn Thành 2026-11-27)
+- [x] **1. Khôi phục & Sửa triệt để luồng Phê duyệt Thay đổi Đại lý (Tab 5)**:
+  - [x] Sửa lỗi nghiêm trọng nút **Từ chối (`"REJECT"`)** bị ép kiểu boolean thành `true` (tự duyệt nhầm) trên cả `manager_app.js`, `api.js` và `api.php`.
+  - [x] Đồng bộ khóa trả về `requests` / `data` của `getCustomerUpdateRequests` giúp Tab 5 hiển thị đúng các yêu cầu chờ duyệt.
+  - [x] Khôi phục nút **`✏️ Đề xuất sửa`** trên thẻ đại lý của Sales, sửa hiển thị `ContactName` trong bảng so sánh Trước/Sau và tự tính lại `next_care_date` khi duyệt đổi loại khách (`VIP`/`NORMAL`/`SMALL`).
+- [x] **2. Chống lệch ca & Hỗ trợ đi tuyến thực địa cho Sales (`sales_app.js`)**:
+  - [x] Tự động nhắc và kích hoạt mở ca (`handleStartWork`) nếu Sales bấm chăm sóc khách quá hạn khi chưa bắt đầu ngày làm việc.
+  - [x] Thêm dòng tóm tắt nhanh `📦 Tồn kho • 💰 Công nợ` và nút **`🧭 Chỉ đường`** (Google Maps miễn phí) ngay trên thẻ đại lý.
+- [x] **3. Hoàn thiện Giám sát Quản lý & Hiển thị Bản đồ (`manager_app.js`, `icons.js`)**:
+  - [x] Thêm ô chọn ngày tra cứu lịch sử ngay trên Tab Tổng Quan (Tab 1) và Tab Chi Tiết Timeline (Tab 3).
+  - [x] Vẽ ghim màu tím (`🟣 Điểm Check-in gặp khách`) kèm chi tiết đối soát khoảng cách lên Bản đồ Lộ trình (Tab 2) và bổ sung 2 icon SVG bị thiếu (`file-check`, `user-plus`).
+- [x] **4. Kiểm thử & Triển khai**: Bổ sung unit test chống duyệt nhầm (**33/33 PASS**), đồng bộ FTP nguyên tử lên `hiepphucduc.vn` (`?v=20261127b`) và đẩy lên GitHub.
+
+
 ## Xử Lý Toàn Diện Báo Cáo Thẩm Tra Quy Trình Sales, Trung Thực GPS & Mở Rộng Nghiệp Vụ (Hoàn Thành 2026-11-27)
 - [x] **1. Bảo mật Cấu hình & Đăng nhập (`config.local.php`, `api.php`, `app.js`)**:
   - [x] Tách `DB_PASS` và khóa ký `AUTH_TOKEN_SECRET` độc lập sang `config.local.php` (git-ignored), bảo vệ bằng `.htaccess` (`403 Forbidden`) và giới hạn CORS theo tên miền.

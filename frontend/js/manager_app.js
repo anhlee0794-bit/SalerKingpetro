@@ -251,11 +251,14 @@ const ManagerApp = {
 
       <!-- Realtime Sales Table -->
       <div class="card-section" style="margin-top: 1.5rem;">
-        <div class="section-header">
-          <div class="section-title">Trạng Thái Đội Ngũ & Trách Nhiệm Chăm Sóc (Ngày: ${this.selectedDate})</div>
-          <button class="tab-btn" style="background: var(--bg-subtle); display: inline-flex; align-items: center; gap: 0.4rem;" onclick="ManagerApp.loadDashboardData()">
-            ${Icons.render('refresh-cw', { size: 14 })} Làm mới
-          </button>
+        <div class="section-header" style="flex-wrap: wrap; gap: 0.75rem;">
+          <div class="section-title">Trạng Thái Đội Ngũ & Trách Nhiệm Chăm Sóc</div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <input type="date" class="form-control" style="width: auto; font-size: 0.85rem;" value="${this.selectedDate}" onchange="ManagerApp.onGlobalDateChange(this.value)" title="Chọn ngày giám sát" />
+            <button class="tab-btn" style="background: var(--bg-subtle); display: inline-flex; align-items: center; gap: 0.4rem;" onclick="ManagerApp.loadDashboardData()">
+              ${Icons.render('refresh-cw', { size: 14 })} Làm mới
+            </button>
+          </div>
         </div>
         <div class="table-responsive">
           <table class="custom-table">
@@ -466,6 +469,33 @@ const ManagerApp = {
           }
         });
 
+        // Vẽ các điểm Check-in gặp khách thực tế (ghim tím #9333ea khớp chú thích bản đồ)
+        const routeVisits = detailRes.visits || [];
+        routeVisits.forEach((v) => {
+          if (v.CheckInLatitude && v.CheckInLongitude) {
+            const vPos = [Number(v.CheckInLatitude), Number(v.CheckInLongitude)];
+            const vMarker = L.circleMarker(vPos, {
+              radius: 9,
+              fillColor: "#9333ea",
+              color: "#ffffff",
+              weight: 2.5,
+              opacity: 1,
+              fillOpacity: 0.95
+            }).addTo(this.mapInstance);
+            const distInfo = (v.DistanceToCustomer !== null && v.DistanceToCustomer !== undefined)
+              ? `<br>Khoảng cách tới cửa hàng: <strong>${v.DistanceToCustomer >= 1000 ? (v.DistanceToCustomer / 1000).toFixed(2) + ' km' : v.DistanceToCustomer + 'm'}</strong>`
+              : '';
+            vMarker.bindPopup(`
+              <div style="font-size: 0.86rem;">
+                <strong style="color: #7e22ce;">🟣 Check-in: ${v.CustomerName || v.CustomerID}</strong><br>
+                Giờ vào: <strong>${v.CheckInTime ? String(v.CheckInTime).substring(11, 16) : '--'}</strong> (${v.Duration || 1} phút)${distInfo}<br>
+                Kết quả: <strong>${v.Result || '--'}</strong>
+              </div>
+            `);
+            this.mapMarkers.push(vMarker);
+          }
+        });
+
         if (rawLatLngs.length > 0) {
           // Snap route to road network using OSRM
           const snappedLatLngs = await this.fetchRoadRoute(rawLatLngs);
@@ -616,10 +646,11 @@ const ManagerApp = {
       <div class="card-section">
         <div class="section-header" style="flex-wrap: wrap; gap: 1rem;">
           <div class="section-title">Nhật Ký & Dòng Thời Gian Chi Tiết</div>
-          <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
             <select id="timeline-sales-select" class="form-control" style="width: auto;" onchange="ManagerApp.renderTimelineTab(this.value)">
               ${salesList.map(s => `<option value="${s.UserID}" ${s.UserID === salesId ? 'selected' : ''}>${s.Name}</option>`).join("")}
             </select>
+            <input type="date" class="form-control" style="width: auto;" value="${this.selectedDate}" onchange="ManagerApp.onGlobalDateChange(this.value)" title="Chọn ngày xem lộ trình & timeline" />
           </div>
         </div>
 
@@ -675,6 +706,20 @@ const ManagerApp = {
   viewSalesDetail(salesId) {
     this.selectedSalesId = salesId;
     this.switchTab("timeline");
+  },
+
+  onGlobalDateChange(newDate) {
+    if (!newDate) return;
+    this.selectedDate = newDate;
+    if (this.activeTab === "dashboard") {
+      this.loadDashboardData();
+    } else if (this.activeTab === "timeline") {
+      this.renderTimelineTab(this.selectedSalesId);
+    } else if (this.activeTab === "reports") {
+      this.renderReportsTab();
+    } else if (this.activeTab === "map") {
+      this.refreshMapData();
+    }
   },
 
   // ----------------------------------------------------
@@ -2295,7 +2340,7 @@ const ManagerApp = {
     content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách yêu cầu phê duyệt...</div>`;
 
     const res = await ApiService.getCustomerUpdateRequests();
-    const requests = (res && res.success && res.data) ? res.data : [];
+    const requests = (res && res.success) ? (res.requests || res.data || []) : [];
 
     // Filter
     let filtered = requests;
@@ -2352,6 +2397,14 @@ const ManagerApp = {
 
               const oldData = req.OldData || {};
               const newData = req.NewData || {};
+              const oldPhone = oldData.Phone || oldData.phone || '—';
+              const newPhone = newData.Phone || newData.phone || '—';
+              const oldContact = oldData.ContactName || oldData.contactName || oldData.ContactPerson || '—';
+              const newContact = newData.ContactName || newData.contactName || newData.ContactPerson || '—';
+              const oldAddr = oldData.Address || oldData.address || '—';
+              const newAddr = newData.Address || newData.address || '—';
+              const oldType = oldData.CustomerType || oldData.customerType || '—';
+              const newType = newData.CustomerType || newData.customerType || '—';
 
               const statusBadge = isPending 
                 ? `<span style="background: #fef3c7; color: #b45309; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fde68a;">⏳ Chờ Phê Duyệt</span>`
@@ -2393,10 +2446,10 @@ const ManagerApp = {
                       <div class="diff-column diff-old">
                         <div class="diff-header old">DỮ LIỆU HIỆN TẠI (CŨ)</div>
                         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-                          <div><span style="color: var(--text-muted);">SĐT:</span> <strong>${oldData.Phone || '—'}</strong></div>
-                          <div><span style="color: var(--text-muted);">Người liên hệ:</span> <strong>${oldData.ContactPerson || '—'}</strong></div>
-                          <div><span style="color: var(--text-muted);">Địa chỉ:</span> <strong>${oldData.Address || '—'}</strong></div>
-                          <div><span style="color: var(--text-muted);">Loại khách:</span> <strong>${oldData.CustomerType || '—'}</strong></div>
+                          <div><span style="color: var(--text-muted);">SĐT:</span> <strong>${oldPhone}</strong></div>
+                          <div><span style="color: var(--text-muted);">Người liên hệ:</span> <strong>${oldContact}</strong></div>
+                          <div><span style="color: var(--text-muted);">Địa chỉ:</span> <strong>${oldAddr}</strong></div>
+                          <div><span style="color: var(--text-muted);">Loại khách:</span> <strong>${oldType}</strong></div>
                         </div>
                       </div>
 
@@ -2406,31 +2459,31 @@ const ManagerApp = {
                         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
                           <div>
                             <span style="color: var(--text-muted);">SĐT:</span> 
-                            <strong style="${newData.Phone !== oldData.Phone ? 'color: #047857; text-decoration: underline;' : ''}">
-                              ${newData.Phone || '—'}
+                            <strong style="${newPhone !== oldPhone ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newPhone}
                             </strong>
-                            ${newData.Phone !== oldData.Phone ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                            ${newPhone !== oldPhone ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
                           </div>
                           <div>
                             <span style="color: var(--text-muted);">Người liên hệ:</span> 
-                            <strong style="${newData.ContactPerson !== oldData.ContactPerson ? 'color: #047857; text-decoration: underline;' : ''}">
-                              ${newData.ContactPerson || '—'}
+                            <strong style="${newContact !== oldContact ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newContact}
                             </strong>
-                            ${newData.ContactPerson !== oldData.ContactPerson ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                            ${newContact !== oldContact ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
                           </div>
                           <div>
                             <span style="color: var(--text-muted);">Địa chỉ:</span> 
-                            <strong style="${newData.Address !== oldData.Address ? 'color: #047857; text-decoration: underline;' : ''}">
-                              ${newData.Address || '—'}
+                            <strong style="${newAddr !== oldAddr ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newAddr}
                             </strong>
-                            ${newData.Address !== oldData.Address ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                            ${newAddr !== oldAddr ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
                           </div>
                           <div>
                             <span style="color: var(--text-muted);">Loại khách:</span> 
-                            <strong style="${newData.CustomerType !== oldData.CustomerType ? 'color: #047857; text-decoration: underline;' : ''}">
-                              ${newData.CustomerType || '—'}
+                            <strong style="${newType !== oldType ? 'color: #047857; text-decoration: underline;' : ''}">
+                              ${newType}
                             </strong>
-                            ${newData.CustomerType !== oldData.CustomerType ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
+                            ${newType !== oldType ? '<span style="font-size: 0.7rem; background: #a7f3d0; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Đổi</span>' : ''}
                           </div>
                         </div>
                       </div>
@@ -2480,9 +2533,8 @@ const ManagerApp = {
     UI.showLoading("Đang cập nhật hồ sơ khách hàng...");
     const res = await ApiService.resolveCustomerUpdateRequest(
       requestId,
-      "APPROVE",
+      true,
       "",
-      this.currentUser ? this.currentUser.UserID : "MGR001",
       this.currentUser ? this.currentUser.Name : "Manager"
     );
 
@@ -2510,9 +2562,8 @@ const ManagerApp = {
     UI.showLoading("Đang từ chối yêu cầu...");
     const res = await ApiService.resolveCustomerUpdateRequest(
       requestId,
-      "REJECT",
+      false,
       reason,
-      this.currentUser ? this.currentUser.UserID : "MGR001",
       this.currentUser ? this.currentUser.Name : "Manager"
     );
 

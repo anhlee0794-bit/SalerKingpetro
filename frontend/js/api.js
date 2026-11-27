@@ -522,8 +522,15 @@ const ApiService = {
     return this.request("getCustomerUpdateRequests", { status });
   },
 
-  async resolveCustomerUpdateRequest(requestId, isApproved, rejectReason, approverName) {
-    return this.request("resolveCustomerUpdateRequest", { requestId, isApproved, rejectReason, approverName });
+  async resolveCustomerUpdateRequest(requestId, isApprovedOrDecision, rejectReason, approverIdOrName, approverNameOpt) {
+    const approvedBool = (isApprovedOrDecision === true || isApprovedOrDecision === 1 || String(isApprovedOrDecision).toUpperCase() === "APPROVE" || String(isApprovedOrDecision).toUpperCase() === "TRUE");
+    const finalApproverName = approverNameOpt || approverIdOrName || "Quản lý";
+    return this.request("resolveCustomerUpdateRequest", {
+      requestId,
+      isApproved: approvedBool,
+      rejectReason: rejectReason || "",
+      approverName: finalApproverName
+    });
   },
 
   // Product Catalog Management
@@ -865,27 +872,35 @@ const MockDatabase = {
         if (params.status && params.status !== "ALL") {
           list = list.filter(r => r.Status === params.status);
         }
-        return { success: true, requests: list };
+        return { success: true, requests: list, data: list };
       }
 
       case "resolveCustomerUpdateRequest": {
         const req = (db.CUSTOMER_UPDATE_REQUESTS || []).find(r => r.RequestID === params.requestId);
         if (!req) return { success: false, message: "Không tìm thấy yêu cầu cập nhật" };
 
+        const approvedBool = (params.isApproved === true || params.isApproved === 1 || String(params.isApproved).toUpperCase() === "APPROVE" || String(params.isApproved).toUpperCase() === "TRUE");
         req.ResolvedAt = new Date().toISOString();
+        req.ApprovedAt = req.ResolvedAt;
         req.ApproverName = params.approverName || "Quản Lý";
+        req.ApprovedByName = req.ApproverName;
 
-        if (params.isApproved) {
+        if (approvedBool) {
           req.Status = "APPROVED";
           const cust = (db.CUSTOMERS || []).find(c => c.CustomerID === req.CustomerID);
           if (cust && req.NewData) {
-            if (req.NewData.ContactName) cust.ContactName = req.NewData.ContactName;
-            if (req.NewData.Phone) cust.Phone = req.NewData.Phone;
-            if (req.NewData.Address) cust.Address = req.NewData.Address;
+            const nc = req.NewData.ContactName || req.NewData.contactName || req.NewData.ContactPerson;
+            if (nc) cust.ContactName = nc;
+            if (req.NewData.Phone || req.NewData.phone) cust.Phone = req.NewData.Phone || req.NewData.phone;
+            if (req.NewData.Address || req.NewData.address) cust.Address = req.NewData.Address || req.NewData.address;
             if (req.NewData.Note !== undefined) cust.Note = req.NewData.Note;
-            if (req.NewData.CustomerType) {
-              cust.CustomerType = req.NewData.CustomerType;
-              cust.CareCycleDays = req.NewData.CustomerType === "VIP" ? 3 : (req.NewData.CustomerType === "SMALL" ? 14 : 7);
+            const nt = req.NewData.CustomerType || req.NewData.customerType;
+            if (nt) {
+              cust.CustomerType = nt;
+              cust.CareCycleDays = nt === "VIP" ? 3 : (nt === "SMALL" ? 14 : 7);
+              if (cust.LastCareDate) {
+                cust.NextCareDate = new Date(new Date(cust.LastCareDate).getTime() + cust.CareCycleDays * 86400 * 1000).toISOString();
+              }
             }
           }
         } else {
@@ -894,7 +909,7 @@ const MockDatabase = {
         }
 
         this.saveDB(db);
-        const actionLabel = params.isApproved ? "phê duyệt" : "từ chối";
+        const actionLabel = approvedBool ? "phê duyệt" : "từ chối";
         return { success: true, request: req, message: `Đã ${actionLabel} yêu cầu thành công!` };
       }
 

@@ -429,10 +429,14 @@ const SalesApp = {
                   <span style="flex-shrink: 0; margin-top: 2px;">${Icons.render('map-pin', { size: 13, color: 'var(--text-muted)' })}</span>
                   <span style="line-height: 1.3;">${c.Address || 'Chưa cập nhật địa chỉ'}</span>
                 </div>
-                <div style="font-size: 0.78rem; color: var(--text-light); margin-top: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+                <div style="font-size: 0.78rem; color: var(--text-light); margin-top: 0.25rem; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                   <span>${Icons.render('phone', { size: 12, color: 'var(--text-light)' })}</span>
                   <span>${c.ContactName ? `${c.ContactName} · ` : ''}</span>
                   <a href="tel:${c.Phone}" style="color: var(--primary); text-decoration: none; font-weight: 600;" onclick="event.stopPropagation();">${c.Phone || 'Chưa có SĐT'}</a>
+                </div>
+                <div style="font-size: 0.74rem; color: #475569; margin-top: 0.3rem; display: flex; gap: 0.65rem; flex-wrap: wrap;">
+                  <span>📦 Tồn: <strong>${c.CurrentStock || 0} ${c.StockUnit || 'Thùng'}</strong></span>
+                  <span>💰 Nợ: <strong style="color: ${(c.CurrentDebt || 0) > 0 ? '#b45309' : '#059669'};">${Number(c.CurrentDebt || 0).toLocaleString('vi-VN')}đ</strong></span>
                 </div>
               </div>
               <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; flex-shrink: 0;">
@@ -441,7 +445,15 @@ const SalesApp = {
               </div>
             </div>
 
-            <div style="border-top: 1px dashed var(--border); padding-top: 0.5rem; display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem;">
+            <div style="border-top: 1px dashed var(--border); padding-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <div style="display: inline-flex; gap: 0.35rem; align-items: center;">
+                <a href="${(c.Latitude && c.Longitude) ? `https://www.google.com/maps/dir/?api=1&destination=${c.Latitude},${c.Longitude}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.Address || c.CustomerName)}`}" target="_blank" rel="noopener" onclick="event.stopPropagation();" class="btn-card-action" style="text-decoration: none; font-size: 0.75rem; padding: 0.35rem 0.55rem; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0;" title="Mở Google Maps dẫn đường tới đại lý">
+                  ${Icons.render('navigation', { size: 12, color: '#15803d' })} Chỉ đường
+                </a>
+                <button class="btn-card-action" style="font-size: 0.75rem; padding: 0.35rem 0.55rem; background: var(--bg-subtle); color: var(--text-muted); border: 1px solid var(--border);" onclick="event.stopPropagation(); SalesApp.showRequestCustomerUpdateModal('${c.CustomerID}')" title="Đề xuất sửa SĐT, địa chỉ, người liên hệ">
+                  ${Icons.render('pencil', { size: 12 })} Đề xuất sửa
+                </button>
+              </div>
               ${isCurrentActive ? `
                 <button class="btn-card-action btn-card-action-primary" onclick="SalesApp.showCareCheckoutModal()">
                   ${Icons.render('file-edit', { size: 14 })} CẬP NHẬT NỘI DUNG
@@ -828,12 +840,18 @@ const SalesApp = {
     const cust = this.customers.find(c => c.CustomerID === customerId);
     if (!cust) return;
 
-    // Immediately prepare active visit without distance blocking
+    // Bắt buộc mở ca làm việc hợp lệ trước khi ghi nhận chăm sóc điểm bán để đồng bộ trạng thái & bật GPS
+    if (!this.activeSession) {
+      const ok = confirm(`Bạn chưa BẮT ĐẦU CA LÀM VIỆC hôm nay.\nBấm OK để bật GPS mở ca và ghi nhận chăm sóc cho "${cust.CustomerName}" ngay!`);
+      if (!ok) return;
+      await this.handleStartWork();
+      if (!this.activeSession) return;
+    }
+
     if (!this.activeVisit || this.activeVisit.CustomerID !== customerId) {
       await this._autoCheckinCustomer(customerId);
     }
 
-    // Immediately display the care update modal
     this.showCareCheckoutModal(customerId);
   },
 

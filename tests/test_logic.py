@@ -809,6 +809,18 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         ]
         self.assertEqual(visible_sales, ["C1", "C2"])
 
+    def test_approval_decision_parsing_reject_never_treated_as_approve(self):
+        # Regression test: string "REJECT" or False or 0 MUST evaluate to False (REJECTED), never True!
+        def parse_decision(raw):
+            return raw is True or raw == 1 or str(raw).strip().upper() in ("1", "APPROVE", "TRUE")
+
+        self.assertFalse(parse_decision("REJECT"))
+        self.assertFalse(parse_decision(False))
+        self.assertFalse(parse_decision(0))
+        self.assertFalse(parse_decision("false"))
+        self.assertTrue(parse_decision(True))
+        self.assertTrue(parse_decision("APPROVE"))
+
 class AnchorActivityClassifier:
     @staticmethod
     def classify(curr, anchor, settings):

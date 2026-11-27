@@ -1,5 +1,27 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Rà Soát Chéo Quy Trình Nghiệp Vụ Đầu-Cuối & Sửa 6 Điểm Đứt Luồng Vận Hành
+- **Mục đích / Bối cảnh**: Rà soát toàn diện quy trình nghiệp vụ thực tế từ lúc Sales mở ca ngoài đường đến khi Quản lý đối soát và phê duyệt trên văn phòng, phát hiện và khắc phục triệt để 6 lỗi đứt luồng tiềm ẩn.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/api.php`, `frontend/js/api.js`, `frontend/js/manager_app.js`, `frontend/js/sales_app.js`:
+    - **Khắc phục lỗi nghiêm trọng luồng Phê duyệt thay đổi thông tin đại lý (Tab 5)**:
+      - Sửa lỗi phân tích biến quyết định duyệt (`isApproved`): Trước đây `handleRejectRequest()` truyền chuỗi `"REJECT"` khiến cả PHP (`!empty("REJECT") === true`) lẫn JS (`if ("REJECT")`) hiểu nhầm nút **Từ chối** thành **Chấp thuận** và ghi đè dữ liệu khách hàng. Đã chuẩn hóa kiểm tra boolean/status nghiêm ngặt ở cả 3 tầng.
+      - Đồng bộ tên trường dữ liệu trả về của `getCustomerUpdateRequests` (`requests` & `data`) để Tab 5 Quản lý hiển thị đầy đủ danh sách yêu cầu chờ duyệt thay vì luôn báo trống `0 yêu cầu`.
+      - Khôi phục nút **`✏️ Đề xuất sửa`** (`showRequestCustomerUpdateModal`) trên thẻ khách hàng của Sales để nhân viên hiện trường gửi yêu cầu cập nhật SĐT, người liên hệ, địa chỉ, tọa độ.
+      - Đồng bộ trường `ContactName`/`contactName` trong bảng đối chiếu Trước – Sau (Diff Viewer) và tự động tính lại `next_care_date` theo chu kỳ mới (`VIP`/`NORMAL`/`SMALL`) ngay khi Quản lý bấm Duyệt thay đổi phân loại đại lý.
+  - `frontend/js/sales_app.js`:
+    - **Chặn lệch phiên khi bấm Chăm sóc mà chưa Bắt đầu ca**: Trong `openCareForCustomer()`, nếu Sales bấm vào đại lý từ danh sách *Khách Quá Hạn* khi chưa mở ca (`!activeSession`), hệ thống tự nhắc xác nhận và kích hoạt `handleStartWork()` trước để đảm bảo GPS tuyến đi và mã phiên luôn đồng bộ.
+    - **Bổ sung Chỉ đường Google Maps & Tóm tắt Tồn/Nợ nhanh trên thẻ đại lý**: Hiển thị dòng `📦 Tồn: ... • 💰 Nợ: ...` ngay ngoài danh sách tuyến và thêm nút **`🧭 Chỉ đường`** mở thẳng điều hướng dẫn đường Google Maps miễn phí tới tọa độ cửa hàng.
+  - `frontend/js/manager_app.js`:
+    - **Bộ chọn ngày trên Tab Tổng Quan (Tab 1) & Chi Tiết Timeline (Tab 3)**: Gắn ô chọn ngày `<input type="date">` đồng bộ với `onGlobalDateChange()` giúp Quản lý tra cứu lại ca làm và nhật ký di chuyển của các ngày trước đó mà không cần vòng qua Tab Bản đồ.
+    - **Hiển thị Điểm Check-in màu tím (`🟣`) trên Bản đồ Tuyến đường (Tab 2)**: Vẽ các điểm ghé thăm thực tế (`visits`) kèm popup giờ vào, thời lượng đứng, khoảng cách đối soát và kết quả chăm sóc khớp đúng chú giải bản đồ.
+  - `frontend/js/icons.js`, `frontend/index.html`, `frontend/sw.js`, `frontend/js/app.js`:
+    - Bổ sung 2 icon SVG bị thiếu (`file-check` trên Tab 5 và `user-plus` trên nút Thêm nhân sự) để không còn hiện dấu `?`; nâng phiên bản cache PWA lên `?v=20261127b`.
+  - `tests/test_logic.py`: Bổ sung unit test `test_approval_decision_parsing_reject_never_treated_as_approve` kiểm chứng mọi biến thể `"REJECT"`, `false`, `"0"` không bao giờ bị hiểu nhầm là duyệt (**33/33 PASS**).
+- **Kết quả kiểm thử & xác minh**:
+  - Chạy `python tests/test_logic.py` (**33/33 PASS**) & `node --check` trên toàn bộ 9 file JS (0 lỗi).
+  - Đồng bộ nguyên tử FTP lên `https://hiepphucduc.vn/saler/` và kiểm tra E2E trực tiếp endpoint `getCustomerUpdateRequests` & `getManagerDashboard` hoạt động chuẩn xác.
+
 ## [2026-11-27] - Xử Lý Toàn Diện Báo Cáo Thẩm Tra Quy Trình Sales, Trung Thực GPS, Giỏ Đơn Nhiều Mặt Hàng, Chụp Ảnh Điểm Bán & Tách Bí Mật Khỏi Git
 - **Mục đích / Bối cảnh**: Giải quyết triệt để các lỗ hổng bảo mật, tính trung thực tọa độ GPS, thuật toán nhận diện di chuyển và các giới hạn nghiệp vụ bán hàng phát hiện trong đợt thẩm tra toàn hệ thống (`audit_sales_app.md`).
 - **Các file thay đổi (Affected Files)**:
