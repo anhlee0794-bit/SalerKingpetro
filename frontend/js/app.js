@@ -226,7 +226,7 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127d").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127e").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
@@ -1073,11 +1073,11 @@ const App = {
     if (targetSalesUser && (!this.currentUser || this.currentUser.UserID !== targetSalesUser.UserID)) {
       await this.applyUserRole(targetSalesUser);
     } else if (typeof SalesApp !== "undefined") {
-      if (typeof SalesApp.updateCurrentPositionUi === "function") {
-        SalesApp.updateCurrentPositionUi(targetLat, targetLng, 8, "STATIONARY (MOCK GPS)");
+      if (typeof SalesApp.updateActivityUI === "function") {
+        SalesApp.updateActivityUI("STATIONARY", 8);
       }
-      if (typeof SalesApp.renderCustomerCards === "function") {
-        SalesApp.renderCustomerCards();
+      if (typeof SalesApp.render === "function") {
+        SalesApp.render();
       }
     }
 

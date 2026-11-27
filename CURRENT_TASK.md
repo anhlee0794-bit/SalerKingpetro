@@ -1,5 +1,13 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Hoàn Thành 2026-11-27)
+- [x] **1. Gõ tìm kiếm mượt trên RAM giữ nguyên con trỏ (`manager_app.js`)**: Áp dụng cho cả Tab 4 (Khách Hàng), Tab 6 (Hàng Hóa) và Tab 8 (Nhân Sự).
+- [x] **2. Gom duyệt Đại lý mới chờ duyệt lên Tab 5 & thêm nút Từ chối (`manager_app.js`, `api.php`)**: Quản lý mở Tab 5 thấy ngay cả Điểm bán mới lẫn Yêu cầu sửa thông tin khách cũ.
+- [x] **3. Xuất CSV chuẩn tiếng Việt UTF-8 BOM cho Excel & cột Doanh số (`manager_app.js`)**: Mở trên Excel Windows hiển thị tiếng Việt chuẩn 100%.
+- [x] **4. Hỗ trợ Offline Queue khi Sales thêm Điểm bán mới mất sóng 4G (`api.js`, `sales_app.js`)**: Lưu tạm `CUST-OFFLINE-*` và tự đồng bộ + ánh xạ mã khi có mạng lại.
+- [x] **5. Cảnh báo kết ca khi đang thăm dở khách & đồng bộ 100% Icon/Hàm (`sales_app.js`, `icons.js`, `app.js`)**: Pass **36/36** unit tests, 0 lỗi kiểm tra chéo tĩnh, đồng bộ FTP lên `hiepphucduc.vn` (`?v=20261127e`) và đẩy lên GitHub.
+
+
 ## Xóa Cấu Hình Google Apps Script & Thêm Công Tắc Bật/Tắt Công Cụ ADMIN (Hoàn Thành 2026-11-27)
 - [x] **1. Gỡ bỏ hoàn toàn Cấu hình Google Apps Script & Reset Mock Data cũ (`app.js`)**: Dọn sạch hộp thoại `openSettingsDialog()` và `resetMockData()` không còn cần thiết khi chạy MySQL Production.
 - [x] **2. Tùy ý Bật/Tắt Thanh Công Cụ ADMIN trong Cài Đặt Hệ Thống (`manager_app.js`, `app.js`, `api.php`)**:

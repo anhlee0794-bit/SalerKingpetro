@@ -790,7 +790,18 @@ const SalesApp = {
   },
 
   async handleEndWork() {
-    if (!confirm("Bạn có chắc chắn muốn KẾT THÚC CA LÀM VIỆC hôm nay?")) {
+    if (this.activeVisit) {
+      const visitingCust = (this.customers || []).find(c => c.CustomerID === this.activeVisit.CustomerID);
+      const visitingName = visitingCust ? visitingCust.CustomerName : (this.activeVisit.CustomerName || this.activeVisit.CustomerID || "điểm bán hiện tại");
+      const confirmCloseOpenVisit = confirm(
+        `⚠️ LƯU Ý: Bạn đang mở dở phiên ghé thăm tại "${visitingName}" và chưa bấm LƯU NỘI DUNG CHĂM SÓC!\n\n` +
+        `• Bấm [Hủy / Cancel] để quay lại lưu đơn hàng & tồn kho trước.\n` +
+        `• Bấm [OK] nếu bạn vẫn muốn đóng lượt ghé này và KẾT THÚC CA LÀM VIỆC ngay.`
+      );
+      if (!confirmCloseOpenVisit) {
+        return;
+      }
+    } else if (!confirm("Bạn có chắc chắn muốn KẾT THÚC CA LÀM VIỆC hôm nay?")) {
       return;
     }
 
@@ -1070,7 +1081,10 @@ const SalesApp = {
 
       if (res && res.success) {
         UI.closeModal();
-        UI.showToast(res.message || "Đã gửi thông tin điểm mới!", "success");
+        UI.showToast(
+          res.message || "Đã gửi thông tin điểm mới!",
+          res.queuedOffline ? "warning" : "success"
+        );
         await this.loadCustomers();
         this.render();
       } else {

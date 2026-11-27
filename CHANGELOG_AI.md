@@ -1,5 +1,21 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Tìm Kiếm Giữ Con Trỏ, Gom Duyệt Điểm Mới, CSV Excel UTF-8 BOM, Offline Điểm Mới & Cảnh Báo Kết Ca)
+- **Mục đích / Bối cảnh**: Xử lý dứt điểm 5 điểm cấn nhỏ còn lại sau đợt quét kiểm tra chéo toàn bộ 39/39 API và giao diện vận hành.
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/manager_app.js`:
+    - **Tìm kiếm tức thì giữ nguyên con trỏ bàn phím**: Bổ sung bộ đệm RAM (`useCached = true` + `_restoreSearchFocus()`) cho Tab 4 (`Khách Hàng`), Tab 6 (`Hàng Hóa`) và Tab 8 (`Nhân Sự`), giúp gõ tìm kiếm mượt tức thì không gọi lại API mỗi ký tự và không bị văng focus ô nhập.
+    - **Gom duyệt Điểm bán mới vào Tab 5 (`Phê Duyệt`) & thêm nút `Từ chối` ở Tab 4**: Hiển thị khối *Điểm Bán Mới Do Sales Đề Xuất Mở Tuyến* (`PENDING_APPROVAL`) ngay đầu Tab 5 kèm đủ nút **Duyệt Mở Tuyến** & **Từ Chối**.
+    - **Chuẩn hóa Xuất Báo Cáo CSV cho Microsoft Excel**: Bổ sung ký tự **UTF-8 BOM (`\uFEFF`)**, tải qua `Blob`, dịch tiêu đề cột sang Tiếng Việt và thêm cột **Doanh Số Đơn Mới (VNĐ)**.
+  - `frontend/js/api.js`: Đưa thao tác tạo điểm bán mới (`createCustomer` của `SALES`) vào Hàng đợi Offline 4G, tạo mã tạm `CUST-OFFLINE-*` vào cache tuyến đi và tự động ánh xạ sang mã thật `CUST-*` cho các lượt Check-in tiếp theo khi có sóng lại.
+  - `frontend/js/sales_app.js` & `backend-php/api.php`:
+    - Bổ sung cảnh báo rõ tên cửa hàng đang ghé dở nếu Sales bấm *Kết thúc ca làm việc* khi chưa bấm lưu phiếu chăm sóc; đồng thời cập nhật `endWork` và kiểm tra boolean nghiêm ngặt cho `approveCustomer` trên `api.php`.
+  - `frontend/js/icons.js`, `frontend/js/app.js`, `frontend/index.html`, `frontend/sw.js`: Bổ sung icon SVG `'lock'` còn thiếu, đồng bộ lời gọi `SalesApp.render()` trong `teleportToCustomer()` và nâng cache PWA lên `?v=20261127e`.
+  - `tests/test_logic.py`: Bổ sung `test_utf8_bom_csv_and_offline_prospect_id_mapping` (**36/36 PASS**).
+- **Kết quả kiểm thử & xác minh**:
+  - Quét kiểm tra tĩnh `full_cross_audit.py`: **0 missing API actions, 0 missing icons, 0 missing method calls**.
+  - Pass **36/36** unit tests, `node --check` 9/9 file JS sạch lỗi, đồng bộ nguyên tử FTP lên `hiepphucduc.vn` và đẩy lên GitHub.
+
 ## [2026-11-27] - Xóa Bỏ Cấu Hình Google Apps Script Cũ & Bổ Sung Quyền Bật/Tắt Thanh Công Cụ ADMIN Trong Cài Đặt Hệ Thống
 - **Mục đích / Bối cảnh**: Dọn bỏ hộp thoại `Cấu Hình Google Apps Script` và nút `Reset Data` (Mock Storage) không còn dùng trên hệ thống MySQL thực tế; đồng thời cho phép `ADMIN` tùy ý Bật / Tắt thanh `Công cụ ADMIN` ngay trong Tab 9 (`Cài Đặt Hệ Thống`).
 - **Các file thay đổi (Affected Files)**:

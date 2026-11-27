@@ -750,15 +750,36 @@ const ManagerApp = {
   customerViewMode: "list", // 'list' or 'map'
   customerMapInstance: null,
   customerMapMarkers: [],
+  cachedCustomersList: [],
+  cachedCustomersSalesList: [],
 
-  async renderCustomersTab() {
+  _restoreSearchFocus(inputId) {
+    const el = document.getElementById(inputId);
+    if (el) {
+      el.focus();
+      const len = (el.value || "").length;
+      try {
+        el.setSelectionRange(len, len);
+      } catch (e) {}
+    }
+  },
+
+  async renderCustomersTab(useCached = false) {
     const content = document.getElementById("manager-tab-content");
     if (!content) return;
 
-    const res = await ApiService.getCustomers(null, "MANAGER");
-    const allCustomers = (res && res.customers) || [];
-    const usersRes = await ApiService.getUsers("MANAGER");
-    const salesList = (usersRes && usersRes.users) ? usersRes.users.filter(u => u.Role === "SALES") : [];
+    let allCustomers = this.cachedCustomersList || [];
+    let salesList = this.cachedCustomersSalesList || [];
+    if (!useCached || allCustomers.length === 0) {
+      const [res, usersRes] = await Promise.all([
+        ApiService.getCustomers(null, "MANAGER"),
+        ApiService.getUsers("MANAGER")
+      ]);
+      allCustomers = (res && res.customers) || [];
+      salesList = (usersRes && usersRes.users) ? usersRes.users.filter(u => u.Role === "SALES") : [];
+      this.cachedCustomersList = allCustomers;
+      this.cachedCustomersSalesList = salesList;
+    }
 
     // Filter Logic
     const q = (this.customerSearchQuery || "").toLowerCase().trim();
@@ -804,7 +825,7 @@ const ManagerApp = {
         <!-- Filter & Search Toolbar -->
         <div class="filter-search-bar">
           <div style="position: relative; flex: 1; min-width: 250px;">
-            <input type="text" class="form-control search-input" style="padding-left: 2.2rem;" placeholder="Tìm theo tên đại lý, người liên hệ, SĐT, địa chỉ..." value="${this.customerSearchQuery}" oninput="ManagerApp.onCustomerSearch(this.value)" />
+            <input type="text" id="mgr-cust-search-input" class="form-control search-input" style="padding-left: 2.2rem;" placeholder="Tìm theo tên đại lý, người liên hệ, SĐT, địa chỉ..." value="${this.customerSearchQuery}" oninput="ManagerApp.onCustomerSearch(this.value)" />
             <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;">
               ${Icons.render('search', { size: 15 })}
             </span>
@@ -867,6 +888,9 @@ const ManagerApp = {
                   <button class="btn-action-inline btn-approve" onclick="ManagerApp.handleApproveCustomer('${c.CustomerID}', true)" title="Duyệt khách hàng">
                     ${Icons.render('check', { size: 13 })} Duyệt
                   </button>
+                  <button class="btn-action-inline" onclick="ManagerApp.handleApproveCustomer('${c.CustomerID}', false)" title="Từ chối điểm bán này" style="color: #b91c1c; border-color: #fecaca; background: #fee2e2;">
+                    ✕ Từ chối
+                  </button>
                 ` : ''}
               </div>
             </td>
@@ -926,22 +950,23 @@ const ManagerApp = {
 
   setCustomerViewMode(mode) {
     this.customerViewMode = mode;
-    this.renderCustomersTab();
+    this.renderCustomersTab(true);
   },
 
-  onCustomerSearch(query) {
+  async onCustomerSearch(query) {
     this.customerSearchQuery = query;
-    this.renderCustomersTab();
+    await this.renderCustomersTab(true);
+    this._restoreSearchFocus("mgr-cust-search-input");
   },
 
   onCustomerStatusFilter(status) {
     this.customerStatusFilter = status;
-    this.renderCustomersTab();
+    this.renderCustomersTab(true);
   },
 
   onCustomerSalesFilter(salesId) {
     this.customerSalesFilter = salesId;
-    this.renderCustomersTab();
+    this.renderCustomersTab(true);
   },
 
   initCustomerMap(customers) {
@@ -1399,22 +1424,26 @@ const ManagerApp = {
   // ----------------------------------------------------
   // APPROVE / REJECT CUSTOMER
   // ----------------------------------------------------
-  async handleApproveCustomer(customerId, approved) {
+  async handleApproveCustomer(customerId, approved, fromApprovalsTab = false) {
     if (typeof PermissionService !== "undefined" && !PermissionService.guard(this.currentUser, "APPROVE_CUSTOMER", "Chỉ Quản lý hoặc Quản trị viên mới có quyền phê duyệt điểm bán!")) {
       return;
     }
-    const actionText = approved ? "PHÊ DUYỆT" : "TỪ CHỐI";
-    if (!confirm(`Bạn có chắc muốn ${actionText} khách hàng này?`)) return;
+    const actionText = approved ? "PHÊ DUYỆT MỞ TUYẾN" : "TỪ CHỐI";
+    if (!confirm(`Bạn có chắc muốn ${actionText} điểm bán này?`)) return;
 
     UI.showLoading("Đang xử lý phê duyệt...");
-    const res = await ApiService.approveCustomer(customerId, approved, this.currentUser.UserID);
+    const res = await ApiService.approveCustomer(customerId, Boolean(approved), this.currentUser.UserID);
     UI.hideLoading();
 
     if (res && res.success) {
       UI.showToast(res.message, "success");
-      this.renderCustomersTab();
+      if (fromApprovalsTab || this.activeTab === "approvals") {
+        await this.renderApprovalsTab();
+      } else {
+        await this.renderCustomersTab(false);
+      }
     } else {
-      UI.showToast(res.message || "Lỗi xử lý", "error");
+      UI.showToast((res && res.message) || "Lỗi xử lý", "error");
     }
   },
 
@@ -1792,36 +1821,54 @@ const ManagerApp = {
     const res = await ApiService.getPerformanceReports(this.reportsSalesId, this.reportsPeriod, this.selectedDate);
     const reports = (res && res.reports) || [];
 
+    const escCsv = (val) => `"${String(val ?? "").replace(/"/g, '""')}"`;
     const rows = [
-      ["SalesID", "Name", "Team", "CompletedVisits", "TargetVisits", "RouteCompletionRatePercent", "TotalFieldHours", "NewOrders", "DistributedQty", "OverdueCustomers", "Rating"]
+      [
+        "Mã Nhân Viên",
+        "Họ Tên Sales",
+        "Đội Nhóm",
+        "Lượt Ghé Hoàn Tất",
+        "Chỉ Tiêu Tuyến",
+        "Tỷ Lệ Hoàn Thành (%)",
+        "Thời Gian Thị Trường (Giờ)",
+        "Số SP Đặt Mới",
+        "Doanh Số Đơn Mới (VNĐ)",
+        "Số SP Đã Giao",
+        "Khách Quá Hạn",
+        "Xếp Loại Hiệu Suất"
+      ]
     ];
 
     reports.forEach(r => {
       rows.push([
-        r.salesId,
-        `"${r.name}"`,
-        `"${r.team || ''}"`,
-        r.completedVisits,
-        r.targetVisits,
-        r.routeCompletionRate,
-        r.totalFieldHours,
-        r.totalNewOrders,
-        r.totalDistributed,
-        r.overdueCount,
-        `"${r.performanceRating}"`
+        escCsv(r.salesId),
+        escCsv(r.name),
+        escCsv(r.team || ""),
+        Number(r.completedVisits || 0),
+        Number(r.targetVisits || 0),
+        Number(r.routeCompletionRate || 0),
+        Number(r.totalFieldHours || 0),
+        Number(r.totalNewOrders || 0),
+        Number(r.totalOrderRevenue || 0),
+        Number(r.totalDistributed || 0),
+        Number(r.overdueCount || 0),
+        escCsv(String(r.performanceRating || "").replace(/[⭐⚠️]/g, "").trim())
       ]);
     });
 
-    let csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
+    // Ký tự UTF-8 BOM (\uFEFF) giúp Microsoft Excel trên Windows hiển thị chuẩn 100% dấu Tiếng Việt
+    const csvText = "\uFEFF" + rows.map(e => e.join(",")).join("\r\n");
+    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+    const blobUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `sales_performance_report_${this.reportsPeriod}_${this.selectedDate}.csv`);
+    link.setAttribute("href", blobUrl);
+    link.setAttribute("download", `Bao_cao_hieu_suat_Sales_${this.reportsPeriod}_${this.selectedDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
 
-    UI.showToast("Đã xuất báo cáo hiệu suất ra file CSV!", "success");
+    UI.showToast("Đã xuất báo cáo hiệu suất ra file CSV (chuẩn tiếng Việt cho Excel)!", "success");
   },
 
   // ----------------------------------------------------
@@ -1830,8 +1877,9 @@ const ManagerApp = {
   userSearchQuery: "",
   userRoleFilter: "ALL",
   cachedUsersList: [],
+  cachedUsersCustomersList: [],
 
-  async renderUsersTab() {
+  async renderUsersTab(useCached = false) {
     const content = document.getElementById("manager-tab-content");
     if (!content) return;
 
@@ -1839,30 +1887,37 @@ const ManagerApp = {
       return;
     }
 
-    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách nhân sự & phân bổ tuyến từ MySQL...</div>`;
+    let users = this.cachedUsersList || [];
+    let allCustomers = this.cachedUsersCustomersList || [];
 
-    const usersRes = await ApiService.getUsers("ADMIN", null, true);
-    const rawUsers = (usersRes && Array.isArray(usersRes.users)) ? usersRes.users : (typeof App !== "undefined" ? App.users : []);
-    const users = rawUsers.map(u => ({
-      UserID: u.UserID || u.userId,
-      Name: u.Name || u.name,
-      Email: u.Email || u.email,
-      Role: (u.Role || u.role || "SALES").toUpperCase(),
-      Phone: u.Phone || u.phone || "",
-      Team: u.Team || u.team || "",
-      Status: (u.Status || u.status || "ACTIVE").toUpperCase()
-    }));
-    this.cachedUsersList = users;
+    if (!useCached || users.length === 0) {
+      content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách nhân sự & phân bổ tuyến từ MySQL...</div>`;
 
-    if (typeof App !== "undefined") {
-      App.users = users.filter(u => u.Status === "ACTIVE");
-      if (typeof App.renderRoleSwitcher === "function") {
-        App.renderRoleSwitcher();
+      const [usersRes, custRes] = await Promise.all([
+        ApiService.getUsers("ADMIN", null, true),
+        ApiService.getCustomers(null, "ADMIN")
+      ]);
+      const rawUsers = (usersRes && Array.isArray(usersRes.users)) ? usersRes.users : (typeof App !== "undefined" ? App.users : []);
+      users = rawUsers.map(u => ({
+        UserID: u.UserID || u.userId,
+        Name: u.Name || u.name,
+        Email: u.Email || u.email,
+        Role: (u.Role || u.role || "SALES").toUpperCase(),
+        Phone: u.Phone || u.phone || "",
+        Team: u.Team || u.team || "",
+        Status: (u.Status || u.status || "ACTIVE").toUpperCase()
+      }));
+      allCustomers = (custRes && custRes.customers) || [];
+      this.cachedUsersList = users;
+      this.cachedUsersCustomersList = allCustomers;
+
+      if (typeof App !== "undefined") {
+        App.users = users.filter(u => u.Status === "ACTIVE");
+        if (typeof App.renderRoleSwitcher === "function") {
+          App.renderRoleSwitcher();
+        }
       }
     }
-
-    const custRes = await ApiService.getCustomers(null, "ADMIN");
-    const allCustomers = (custRes && custRes.customers) || [];
 
     const totalUsers = users.length;
     const adminCount = users.filter(u => u.Role === "ADMIN").length;
@@ -2004,14 +2059,15 @@ const ManagerApp = {
         <div style="flex: 1; min-width: 240px;">
           <input
             type="text"
+            id="mgr-user-search-input"
             placeholder="🔍 Tìm nhân sự theo tên, email, SĐT, mã hoặc đội nhóm..."
             value="${this.userSearchQuery}"
-            oninput="ManagerApp.userSearchQuery = this.value; ManagerApp.renderUsersTab();"
+            oninput="ManagerApp.userSearchQuery = this.value; ManagerApp.renderUsersTab(true).then(() => ManagerApp._restoreSearchFocus('mgr-user-search-input'));"
             class="form-control"
           />
         </div>
         <div style="min-width: 200px;">
-          <select class="form-control" onchange="ManagerApp.userRoleFilter = this.value; ManagerApp.renderUsersTab();">
+          <select class="form-control" onchange="ManagerApp.userRoleFilter = this.value; ManagerApp.renderUsersTab(true);">
             <option value="ALL" ${this.userRoleFilter === 'ALL' ? 'selected' : ''}>Tất cả vai trò (${totalUsers})</option>
             <option value="ADMIN" ${this.userRoleFilter === 'ADMIN' ? 'selected' : ''}>ADMIN (${adminCount})</option>
             <option value="MANAGER" ${this.userRoleFilter === 'MANAGER' ? 'selected' : ''}>MANAGER - Quản lý (${managerCount})</option>
@@ -2356,10 +2412,17 @@ const ManagerApp = {
     const content = document.getElementById("manager-tab-content");
     if (!content) return;
 
-    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách yêu cầu phê duyệt...</div>`;
+    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh sách điểm bán mới & yêu cầu phê duyệt...</div>`;
 
-    const res = await ApiService.getCustomerUpdateRequests();
+    const [res, custRes, usersRes] = await Promise.all([
+      ApiService.getCustomerUpdateRequests(),
+      ApiService.getCustomers(null, "MANAGER"),
+      ApiService.getUsers("MANAGER")
+    ]);
     const requests = (res && res.success) ? (res.requests || res.data || []) : [];
+    const allCustomers = (custRes && custRes.customers) || [];
+    const salesUsers = (usersRes && usersRes.users) || [];
+    const pendingNewCustomers = allCustomers.filter(c => c.Status === "PENDING_APPROVAL");
 
     // Filter
     let filtered = requests;
@@ -2371,8 +2434,49 @@ const ManagerApp = {
     const approvedCount = requests.filter(r => r.Status === "APPROVED").length;
     const rejectedCount = requests.filter(r => r.Status === "REJECTED").length;
 
+    const pendingCustomersSectionHtml = pendingNewCustomers.length > 0 ? `
+      <div style="background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 12px; padding: 1.15rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="font-weight: 800; font-size: 1rem; color: #92400e; display: inline-flex; align-items: center; gap: 0.45rem;">
+            ${Icons.render('store', { size: 18, color: '#d97706' })} Điểm Bán Mới Do Sales Đề Xuất Mở Tuyến (${pendingNewCustomers.length})
+          </div>
+          <span style="font-size: 0.76rem; color: #b45309; font-weight: 600;">Duyệt để đưa vào tuyến chính thức trên toàn hệ thống</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          ${pendingNewCustomers.map(c => {
+            const creator = salesUsers.find(u => u.UserID === c.AssignedSalesID);
+            const creatorLabel = creator ? `${creator.Name} (${creator.UserID})` : (c.AssignedSalesID || "Sales");
+            return `
+              <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 10px; padding: 0.9rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 240px;">
+                  <div style="font-weight: 800; font-size: 0.98rem; color: var(--text-main);">
+                    ${c.CustomerName} <span style="font-size: 0.74rem; color: var(--text-muted); font-weight: 600;">(${c.CustomerID})</span>
+                  </div>
+                  <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
+                    📍 ${c.Address || 'Chưa nhập địa chỉ'} • 📞 <strong>${c.ContactName || '--'}</strong> (${c.Phone || '--'})
+                  </div>
+                  <div style="font-size: 0.76rem; color: #0369a1; margin-top: 3px;">
+                    👤 Sales đề xuất: <strong>${creatorLabel}</strong>${c.Note ? ` • Ghi chú: <em>${c.Note}</em>` : ''}
+                  </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <button class="btn-action-inline" onclick="ManagerApp.handleApproveCustomer('${c.CustomerID}', false, true)" style="background: #fee2e2; color: #b91c1c; border-color: #fecaca; padding: 0.45rem 0.9rem; font-weight: 700;">
+                    ✕ Từ Chối
+                  </button>
+                  <button class="btn-action-large btn-meet-customer" onclick="ManagerApp.handleApproveCustomer('${c.CustomerID}', true, true)" style="padding: 0.45rem 1.1rem; font-weight: 700; background: #10b981; width: auto;">
+                    ✓ Duyệt Mở Tuyến
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    ` : "";
+
     content.innerHTML = `
       <div style="padding: 1.25rem;">
+        ${pendingCustomersSectionHtml}
         <!-- Header & Stats -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
           <div>
@@ -2600,25 +2704,30 @@ const ManagerApp = {
   // ----------------------------------------------------
   productSearchQuery: "",
   productCategoryFilter: "ALL",
+  cachedProductsList: [],
 
-  async renderProductsTab() {
+  async renderProductsTab(useCached = false) {
     const content = document.getElementById("manager-tab-content");
     if (!content) return;
 
-    content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);"><i class="fa fa-spinner fa-spin"></i> Đang tải danh mục hàng hóa...</div>`;
+    let products = this.cachedProductsList || [];
+    if (!useCached || products.length === 0) {
+      content.innerHTML = `<div style="text-align: center; padding: 3rem; color: var(--text-muted);">Đang tải danh mục hàng hóa...</div>`;
 
-    const res = await ApiService.getProducts();
-    const rawList = (res && res.success) ? (res.data || res.products || []) : [];
-    const products = rawList.map(p => ({
-      ProductID: p.ProductID || p.id,
-      ProductName: p.ProductName || p.name,
-      CategoryID: p.CategoryID || p.category || "Khác",
-      CategoryName: p.CategoryName || p.category || "Khác",
-      Unit: p.Unit || p.defaultUnit || "Thùng",
-      Packaging: p.Packaging !== undefined ? p.Packaging : (p.spec || ""),
-      BasePrice: Number(p.BasePrice !== undefined ? p.BasePrice : (p.price || 0)),
-      Status: p.Status || p.status || "ACTIVE"
-    }));
+      const res = await ApiService.getProducts();
+      const rawList = (res && res.success) ? (res.data || res.products || []) : [];
+      products = rawList.map(p => ({
+        ProductID: p.ProductID || p.id,
+        ProductName: p.ProductName || p.name,
+        CategoryID: p.CategoryID || p.category || "Khác",
+        CategoryName: p.CategoryName || p.category || "Khác",
+        Unit: p.Unit || p.defaultUnit || "Thùng",
+        Packaging: p.Packaging !== undefined ? p.Packaging : (p.spec || ""),
+        BasePrice: Number(p.BasePrice !== undefined ? p.BasePrice : (p.price || 0)),
+        Status: p.Status || p.status || "ACTIVE"
+      }));
+      this.cachedProductsList = products;
+    }
 
     // Tập hợp tự động danh mục từ dữ liệu thực tế + danh mục chuẩn Kingpetro
     const defaultCats = [
@@ -2699,15 +2808,16 @@ const ManagerApp = {
           <div style="flex: 1; min-width: 250px;">
             <input 
               type="text" 
+              id="mgr-prod-search-input"
               placeholder="🔍 Tìm theo tên sản phẩm, mã hoặc quy cách..." 
               value="${this.productSearchQuery}"
-              oninput="ManagerApp.productSearchQuery = this.value; ManagerApp.renderProductsTab();"
+              oninput="ManagerApp.productSearchQuery = this.value; ManagerApp.renderProductsTab(true).then(() => ManagerApp._restoreSearchFocus('mgr-prod-search-input'));"
               style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-main); color: var(--text-main);"
             />
           </div>
           <div style="min-width: 220px;">
             <select 
-              onchange="ManagerApp.productCategoryFilter = this.value; ManagerApp.renderProductsTab();"
+              onchange="ManagerApp.productCategoryFilter = this.value; ManagerApp.renderProductsTab(true);"
               style="width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--bg-main); color: var(--text-main);"
             >
               ${categories.map(c => `

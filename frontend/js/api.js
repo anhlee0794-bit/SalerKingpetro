@@ -221,6 +221,47 @@ const ApiService = {
         activeVisit: null
       }));
       syntheticResponse = { ...syntheticResponse, duration: 1, workDuration: 1 };
+    } else if (action === "createCustomer") {
+      const tempCustomerId = "CUST-OFFLINE-" + Date.now();
+      itemParams.tempCustomerId = tempCustomerId;
+      const d = params.data || {};
+      const creatorId = params.creatorId || "";
+      const offlineCust = {
+        CustomerID: tempCustomerId,
+        CustomerName: d.CustomerName || "Điểm bán mới",
+        ContactName: d.ContactName || "",
+        Phone: d.Phone || "",
+        Address: d.Address || "",
+        Latitude: Number(d.Latitude || 0),
+        Longitude: Number(d.Longitude || 0),
+        AssignedSalesID: creatorId,
+        CustomerType: d.CustomerType || "NORMAL",
+        CareCycleDays: 7,
+        CurrentDebt: 0,
+        CurrentStock: 0,
+        StockUnit: "Thùng",
+        Status: "PENDING_APPROVAL",
+        CareStatus: "NEVER_VISITED",
+        Note: d.Note || ""
+      };
+      if (creatorId) {
+        try {
+          const cKey = this.customersCachePrefix + creatorId;
+          const cRaw = localStorage.getItem(cKey);
+          const cParsed = cRaw ? JSON.parse(cRaw) : { success: true, customers: [] };
+          if (Array.isArray(cParsed.customers)) {
+            cParsed.customers.unshift(offlineCust);
+            localStorage.setItem(cKey, JSON.stringify(cParsed));
+          }
+        } catch (e) {}
+      }
+      syntheticResponse = {
+        ...syntheticResponse,
+        customerId: tempCustomerId,
+        CustomerID: tempCustomerId,
+        status: "PENDING_APPROVAL",
+        message: "Mất sóng 4G: Đã lưu Điểm bán mới vào máy và sẽ tự gửi lên Quản lý duyệt ngay khi có sóng!"
+      };
     }
 
     queue.push({
@@ -249,6 +290,7 @@ const ApiService = {
     this._isFlushingQueue = true;
     const sessionIdMap = {};
     const visitIdMap = {};
+    const customerIdMap = {};
     const remaining = [];
     let syncedCount = 0;
 
@@ -262,6 +304,12 @@ const ApiService = {
         }
         if (payloadParams.visitId && visitIdMap[payloadParams.visitId]) {
           payloadParams.visitId = visitIdMap[payloadParams.visitId];
+        }
+        if (payloadParams.customerId && customerIdMap[payloadParams.customerId]) {
+          payloadParams.customerId = customerIdMap[payloadParams.customerId];
+        }
+        if (payloadParams.careData && payloadParams.careData.CustomerID && customerIdMap[payloadParams.careData.CustomerID]) {
+          payloadParams.careData = { ...payloadParams.careData, CustomerID: customerIdMap[payloadParams.careData.CustomerID] };
         }
 
         try {
@@ -297,6 +345,9 @@ const ApiService = {
               if (typeof SalesApp !== "undefined" && SalesApp.activeVisit && SalesApp.activeVisit.VisitID === entry.params.tempVisitId) {
                 SalesApp.activeVisit.VisitID = realVid;
               }
+            }
+            if (entry.action === "createCustomer" && entry.params.tempCustomerId && (data.CustomerID || data.customerId)) {
+              customerIdMap[entry.params.tempCustomerId] = data.CustomerID || data.customerId;
             }
           }
           // Nếu lỗi logic nghiệp vụ (success: false nhưng server đã phản hồi HTTP 200), bỏ qua không lặp vô hạn
@@ -373,7 +424,8 @@ const ApiService = {
       console.warn(`[ApiService] Network error calling Production API for action ${action}:`, err);
 
       // 1. Nếu là thao tác hiện trường của Sales -> Lưu vào Hàng đợi Offline (KHÔNG nhảy sang dữ liệu giả MockDatabase!)
-      if (this.QUEUEABLE_FIELD_ACTIONS.includes(action)) {
+      const isSalesOfflineCreateCustomer = (action === "createCustomer" && String(params.role || "").toUpperCase() === "SALES");
+      if (this.QUEUEABLE_FIELD_ACTIONS.includes(action) || isSalesOfflineCreateCustomer) {
         return this._enqueueFieldMutation(action, params);
       }
 

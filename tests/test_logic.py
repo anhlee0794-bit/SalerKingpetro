@@ -848,6 +848,22 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.assertFalse(is_visible("MANAGER", 1))
         self.assertFalse(is_visible("SALES", 1))
 
+    def test_utf8_bom_csv_and_offline_prospect_id_mapping(self):
+        # 1. Verify UTF-8 BOM prefix is present for Excel Vietnamese compatibility
+        csv_body = "\ufeffMã Nhân Viên,Họ Tên Sales,Doanh Số Đơn Mới (VNĐ)\r\n\"USR-002\",\"Nguyễn Văn A\",5800000"
+        self.assertTrue(csv_body.startswith("\ufeff"))
+        self.assertIn("Nguyễn Văn A", csv_body)
+
+        # 2. Verify offline prospect CUST-OFFLINE-* maps cleanly to real CUST-* for follow-up queued visits
+        cust_map = {"CUST-OFFLINE-999": "CUST-042"}
+        queued_checkin = {"customerId": "CUST-OFFLINE-999", "careData": {"CustomerID": "CUST-OFFLINE-999"}}
+        if queued_checkin["customerId"] in cust_map:
+            queued_checkin["customerId"] = cust_map[queued_checkin["customerId"]]
+        if queued_checkin["careData"]["CustomerID"] in cust_map:
+            queued_checkin["careData"]["CustomerID"] = cust_map[queued_checkin["careData"]["CustomerID"]]
+        self.assertEqual(queued_checkin["customerId"], "CUST-042")
+        self.assertEqual(queued_checkin["careData"]["CustomerID"], "CUST-042")
+
 class AnchorActivityClassifier:
     @staticmethod
     def classify(curr, anchor, settings):

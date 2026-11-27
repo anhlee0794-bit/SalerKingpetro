@@ -1128,8 +1128,8 @@ try {
             $stmt = $pdo->prepare("UPDATE `work_sessions` SET `check_out_time` = ?, `check_out_lat` = ?, `check_out_lng` = ?, `work_duration` = ?, `status` = 'COMPLETED' WHERE `session_id` = ?");
             $stmt->execute([$now, $outLat, $outLng, $duration, $realSessionId]);
 
-            $pdo->prepare("UPDATE `visits` SET `check_out_time` = ?, `status` = 'COMPLETED', `duration` = GREATEST(1, TIMESTAMPDIFF(MINUTE, `check_in_time`, ?)) WHERE `session_id` = ? AND `status` = 'IN_PROGRESS'")
-                ->execute([$now, $now, $realSessionId]);
+            $pdo->prepare("UPDATE `visits` SET `check_out_time` = ?, `status` = 'COMPLETED', `duration` = GREATEST(1, TIMESTAMPDIFF(MINUTE, `check_in_time`, ?)) WHERE (`session_id` = ? OR `sales_id` = ?) AND `status` = 'IN_PROGRESS'")
+                ->execute([$now, $now, $realSessionId, $salesId]);
 
             syncToGoogleSheetsAsync('endWork', [
                 'sessionId' => $realSessionId,
@@ -1363,7 +1363,8 @@ try {
         case 'approveCustomer':
             requireAuth($pdo, $params, ['ADMIN', 'MANAGER']);
             $custId = trim((string)($params['customerId'] ?? ''));
-            $approved = !empty($params['approved']);
+            $rawApproved = $params['approved'] ?? false;
+            $approved = ($rawApproved === true || $rawApproved === 1 || in_array(strtoupper(trim((string)$rawApproved)), ['1', 'TRUE', 'APPROVE'], true));
             if ($approved) {
                 $pdo->prepare("UPDATE `customers` SET `status` = 'ACTIVE' WHERE `customer_id` = ?")->execute([$custId]);
                 echo json_encode(['success' => true, 'message' => 'Đã duyệt điểm bán hoạt động chính thức!'], JSON_UNESCAPED_UNICODE);
