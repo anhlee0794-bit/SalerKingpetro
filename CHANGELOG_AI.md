@@ -11,6 +11,7 @@
     - Bổ sung `initSidebarState()`, `toggleSidebarNav()`, `closeMobileNav()`, `updateNavToggleIcon()` lưu trạng thái thu gọn vào `localStorage` và tự động gọi `ManagerApp.invalidateMaps()` để bản đồ Leaflet co giãn mượt mà khi đóng/mở sidebar.
     - Cập nhật `ManagerApp.renderLayout()` (phân 3 nhóm: Giám sát thị trường, Khách hàng & Hàng hóa, Báo cáo & Quản trị) và `SalesApp.renderSalesSidebarHtml()` đồng bộ Sidebar dọc trên cả giao diện Quản lý lẫn Sales; nâng cache PWA lên `?v=20261127f`.
 - **Kết quả kiểm thử & xác minh**:
+  - Sửa xung đột CSS `.manager-dashboard-container` (`flex-direction: column` cũ ghi đè lên `.app-shell-layout` làm đẩy nội dung xuống dưới Sidebar trên Desktop) sang `flex-direction: row` (`?v=20261127g`).
   - Quét kiểm tra tĩnh `full_cross_audit.py` đạt **0 lỗi**, pass **36/36** unit tests, `node --check` 9/9 file JS sạch lỗi và đồng bộ nguyên tử FTP (bao gồm `css/style.css`) lên `hiepphucduc.vn`.
 
 ## [2026-11-27] - Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Tìm Kiếm Giữ Con Trỏ, Gom Duyệt Điểm Mới, CSV Excel UTF-8 BOM, Offline Điểm Mới & Cảnh Báo Kết Ca)

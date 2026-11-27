@@ -252,6 +252,7 @@ body {
 /* ==================================================== */
 .app-shell-layout {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   gap: 1.25rem;
   width: 100%;
@@ -995,8 +996,17 @@ body {
 /* ==================================================== */
 .manager-dashboard-container {
   display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+#manager-tab-content {
+  display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.15rem;
+  width: 100%;
+  min-width: 0;
 }
 
 /* Top Nav Tabs */
@@ -1636,7 +1646,8 @@ body {
 
 /* Responsive Utilities & Mobile Drawer Optimization */
 @media (max-width: 992px) {
-  .app-shell-layout {
+  .app-shell-layout,
+  .manager-dashboard-container {
     display: block;
   }
 
