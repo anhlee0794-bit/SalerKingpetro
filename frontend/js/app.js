@@ -70,10 +70,12 @@ const App = {
   AUTH_STORAGE_KEY: "sales_field_auth_user",
   AUTH_SESSION_KEY: "sales_field_auth_session",
   DEMO_SESSION_KEY: "sales_field_demo_session",
+  ADMIN_TOOLBAR_STORAGE_KEY: "sales_field_show_admin_toolbar",
   SESSION_TTL_MS: 3 * 24 * 60 * 60 * 1000, // 3 ngày (259,200,000 ms)
   sessionExpiryTimer: null,
   visibilityWatcherBound: false,
   authSession: null,
+  adminToolbarEnabled: true,
   users: [
     { UserID: "USR-000", Name: "Admin Hệ Thống", Email: "admin@company.com", Role: "ADMIN", Team: "HQ", Phone: "0901234500" },
     { UserID: "USR-001", Name: "Quản Lý Nguyễn", Email: "manager@company.com", Role: "MANAGER", Team: "North Team", Phone: "0901234567" },
@@ -224,15 +226,96 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127b").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127d").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
     }
   },
 
+  isAdminToolbarVisible() {
+    return this.isAdminSession() && this.adminToolbarEnabled !== false;
+  },
+
+  loadLocalAdminToolbarPref() {
+    const raw = localStorage.getItem(this.ADMIN_TOOLBAR_STORAGE_KEY);
+    if (raw === "0" || raw === "false") {
+      this.adminToolbarEnabled = false;
+    } else if (raw === "1" || raw === "true") {
+      this.adminToolbarEnabled = true;
+    }
+  },
+
+  async syncAdminToolbarSettingFromServer() {
+    if (!this.isAdminSession()) return;
+    try {
+      const sRes = await ApiService.getSettings();
+      if (sRes && sRes.success && sRes.settings && sRes.settings.SHOW_ADMIN_TOOLBAR !== undefined) {
+        const val = sRes.settings.SHOW_ADMIN_TOOLBAR;
+        const enabled = !(val === 0 || val === "0" || val === false || String(val).toLowerCase() === "false");
+        this.adminToolbarEnabled = enabled;
+        localStorage.setItem(this.ADMIN_TOOLBAR_STORAGE_KEY, enabled ? "1" : "0");
+        if (!enabled && this.currentUser && this.authSession && this.authSession.rootUser && this.currentUser.UserID !== this.authSession.rootUser.UserID) {
+          await this.applyUserRole(this.authSession.rootUser);
+        } else {
+          this.renderRoleSwitcher();
+          const switchBtn = document.getElementById("btn-header-login-switch");
+          if (switchBtn) switchBtn.style.display = this.isAdminToolbarVisible() ? "inline-flex" : "none";
+        }
+      }
+    } catch (e) {
+      console.warn("[App] Sync SHOW_ADMIN_TOOLBAR skipped:", e);
+    }
+  },
+
+  async setAdminToolbarEnabled(enabled, persistToServer = true) {
+    if (!this.isAdminSession()) return;
+    const cleanEnabled = Boolean(enabled);
+    this.adminToolbarEnabled = cleanEnabled;
+    localStorage.setItem(this.ADMIN_TOOLBAR_STORAGE_KEY, cleanEnabled ? "1" : "0");
+
+    // Nếu tắt thanh Công cụ ADMIN khi đang đóng vai nhân viên khác -> tự quay về tài khoản ADMIN gốc để không bị kẹt
+    if (!cleanEnabled) {
+      if (typeof GeoService !== "undefined" && typeof GeoService.disableMockGps === "function") {
+        GeoService.disableMockGps();
+      }
+      if (this.authSession && this.authSession.rootUser && this.currentUser && this.currentUser.UserID !== this.authSession.rootUser.UserID) {
+        await this.applyUserRole(this.authSession.rootUser);
+      }
+    }
+
+    this.renderRoleSwitcher();
+    const switchBtn = document.getElementById("btn-header-login-switch");
+    if (switchBtn) {
+      switchBtn.style.display = this.isAdminToolbarVisible() ? "inline-flex" : "none";
+    }
+
+    if (persistToServer) {
+      const res = await ApiService.saveSettings({ SHOW_ADMIN_TOOLBAR: cleanEnabled ? 1 : 0 });
+      if (res && res.success) {
+        UI.showToast(
+          cleanEnabled
+            ? "Đã BẬT thanh Công cụ ADMIN trên đầu trang!"
+            : "Đã TẮT thanh Công cụ ADMIN! (Bạn có thể bật lại bất cứ lúc nào trong Tab Cài Đặt Hệ Thống)",
+          "success"
+        );
+      }
+    }
+  },
+
+  async openAdminSystemSettings() {
+    if (!this.isAdminSession()) return;
+    if (this.currentUser && this.currentUser.Role === "SALES" && this.authSession && this.authSession.rootUser) {
+      await this.applyUserRole(this.authSession.rootUser);
+    }
+    if (typeof ManagerApp !== "undefined" && typeof ManagerApp.switchTab === "function") {
+      await ManagerApp.switchTab("settings");
+    }
+  },
+
   async init() {
     UI.init();
+    this.loadLocalAdminToolbarPref();
     this.registerPwaServiceWorker();
     if (typeof ApiService !== "undefined" && typeof ApiService.bindOnlineAutoSync === "function") {
       ApiService.bindOnlineAutoSync();
@@ -288,10 +371,13 @@ const App = {
         this.scheduleSessionExpiry(session.expiresAt);
         this.bindVisibilitySessionCheck();
 
-        // Nếu là phiên ADMIN, đồng bộ danh sách nhân sự thực tế từ DB cho thanh chuyển góc nhìn
+        // Nếu là phiên ADMIN, đồng bộ danh sách nhân sự thực tế & cài đặt hiển thị thanh Công cụ ADMIN từ DB
         if (this.isAdminSession()) {
           try {
-            const uRes = await ApiService.getUsers();
+            const [uRes] = await Promise.all([
+              ApiService.getUsers(),
+              this.syncAdminToolbarSettingFromServer()
+            ]);
             if (uRes && uRes.success && Array.isArray(uRes.users) && uRes.users.length > 0) {
               this.users = uRes.users.map(x => this.normalizeUser(x));
             }
@@ -326,8 +412,8 @@ const App = {
     const bar = document.getElementById("role-switcher-container");
     if (!bar) return;
 
-    // PHƯƠNG ÁN 2: Ẩn hoàn toàn thanh công cụ Test/Demo đối với SALES và MANAGER
-    if (!this.isAdminSession()) {
+    // Ẩn thanh công cụ đối với SALES, MANAGER hoặc khi ADMIN chủ động tắt trong Cài đặt hệ thống
+    if (!this.isAdminToolbarVisible()) {
       bar.style.display = "none";
       bar.innerHTML = "";
       return;
@@ -357,14 +443,11 @@ const App = {
         </div>
 
         <div id="admin-tools-group" class="restricted-admin-tool" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <button class="restricted-admin-tool" onclick="App.openSettingsDialog()" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #4338ca;">
-            ${Icons.render('settings', { size: 14 })} Cấu Hình Hệ Thống
-          </button>
-          <button class="restricted-admin-tool" onclick="App.resetMockData()" style="background: #991b1b; display: inline-flex; align-items: center; gap: 0.4rem;">
-            ${Icons.render('rotate-ccw', { size: 14 })} Reset Data
-          </button>
-          <button class="restricted-admin-tool" onclick="App.simulateMovement()" title="Mô phỏng thay đổi trạng thái GPS di chuyển (Chỉ dành cho ADMIN)" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #0891b2;">
+          <button class="restricted-admin-tool" onclick="App.simulateMovement()" title="Mô phỏng lộ trình di chuyển & điểm dừng (Chỉ dành cho ADMIN)" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #0891b2;">
             ${Icons.render('zap', { size: 14 })} Test Di Chuyển
+          </button>
+          <button class="restricted-admin-tool" onclick="App.openAdminSystemSettings()" title="Mở Tab Cài Đặt Hệ Thống & Bật/Tắt thanh Công cụ ADMIN" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #4338ca;">
+            ${Icons.render('settings', { size: 14 })} Cài Đặt & Ẩn/Hiện
           </button>
         </div>
       </div>
@@ -420,7 +503,7 @@ const App = {
 
     const switchBtn = document.getElementById("btn-header-login-switch");
     if (switchBtn) {
-      switchBtn.style.display = this.isAdminSession() ? "inline-flex" : "none";
+      switchBtn.style.display = this.isAdminToolbarVisible() ? "inline-flex" : "none";
     }
 
     const btnIcon = document.getElementById("header-login-btn-icon");
@@ -719,7 +802,7 @@ const App = {
     const mainWrapper = document.querySelector(".main-wrapper");
 
     if (authContainer) authContainer.style.display = "none";
-    if (roleSwitcher) roleSwitcher.style.display = this.isAdminSession() ? "block" : "none";
+    if (roleSwitcher) roleSwitcher.style.display = this.isAdminToolbarVisible() ? "block" : "none";
     if (header) header.style.display = "block";
     if (mainWrapper) mainWrapper.style.display = "block";
   },
@@ -740,7 +823,10 @@ const App = {
       this.saveAuthSession(normalizedUser, res.token, res.expiresAt);
       if (this.isAdminSession()) {
         try {
-          const uRes = await ApiService.getUsers();
+          const [uRes] = await Promise.all([
+            ApiService.getUsers(),
+            this.syncAdminToolbarSettingFromServer()
+          ]);
           if (uRes && uRes.success && Array.isArray(uRes.users) && uRes.users.length > 0) {
             this.users = uRes.users.map(x => this.normalizeUser(x));
           }
@@ -781,58 +867,6 @@ const App = {
     }
     UI.showToast("Đã đăng xuất và xóa Token khỏi thiết bị!", "info");
     this.renderAuthWall();
-  },
-
-  /**
-   * Action Guard: Core settings dialog only accessible to root ADMIN session
-   */
-  openSettingsDialog() {
-    if (!this.isAdminSession()) {
-      return UI.showToast("Chỉ tài khoản gốc ADMIN mới có quyền truy cập cấu hình hệ thống!", "danger");
-    }
-
-    const currentUrl = ApiService.getGasUrl();
-    const isMock = ApiService.isMockMode();
-
-    const content = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h3 style="font-weight: 700; font-size: 1.15rem;">Cấu Hình Google Apps Script</h3>
-        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Google Apps Script Web App URL</label>
-        <input type="text" id="config-gas-url" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" value="${currentUrl}" />
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
-          Dán URL Web App sau khi Deploy từ Google Apps Script.
-        </div>
-      </div>
-
-      <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
-        <input type="checkbox" id="config-use-mock" ${isMock ? 'checked' : ''} style="width: 18px; height: 18px;" />
-        <label for="config-use-mock" style="font-size: 0.9rem; font-weight: 600; cursor: pointer;">
-          Sử dụng CSDL Giả Lập Trình Duyệt (Mock Storage)
-        </label>
-      </div>
-
-      <button id="btn-save-settings" class="btn-action-large btn-meet-customer" style="margin-top: 1rem;">
-        LƯU CẤU HÌNH
-      </button>
-    `;
-
-    UI.showModal(content);
-
-    document.getElementById("btn-save-settings").onclick = () => {
-      const url = document.getElementById("config-gas-url").value.trim();
-      const mockChecked = document.getElementById("config-use-mock").checked;
-
-      ApiService.setGasUrl(url);
-      ApiService.setMockMode(mockChecked);
-
-      UI.closeModal();
-      UI.showToast("Đã lưu cấu hình kết nối!", "success");
-      this.applyUserRole(this.currentUser);
-    };
   },
 
   async simulateMovement() {
@@ -1071,21 +1105,6 @@ const App = {
       UI.showToast(res.message || "Đã xóa sạch lộ trình mô phỏng!", "success");
     } else {
       UI.showToast((res && res.message) || "Lỗi khi xóa dữ liệu mô phỏng!", "danger");
-    }
-  },
-
-  /**
-   * Action Guard: Reset database only accessible to ADMIN
-   */
-  resetMockData() {
-    if (!this.isAdminSession()) {
-      return UI.showToast("Chỉ tài khoản gốc ADMIN mới có quyền đặt lại dữ liệu toàn hệ thống!", "danger");
-    }
-
-    if (confirm("Đặt lại toàn bộ dữ liệu mẫu ban đầu?")) {
-      MockDatabase.resetDB();
-      UI.showToast("Đã thiết lập lại dữ liệu mẫu!", "success");
-      this.applyUserRole(this.currentUser);
     }
   },
 

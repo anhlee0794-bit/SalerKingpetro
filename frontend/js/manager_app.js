@@ -3024,6 +3024,8 @@ const ManagerApp = {
     const proximityAlert = Number(s.PROXIMITY_ALERT_RADIUS ?? 100);
     const gpsRetentionDays = Number(s.GPS_RETENTION_DAYS ?? 90);
     const dailyVisitTarget = Number(s.DAILY_VISIT_TARGET ?? 8);
+    const rawAdminToolbar = s.SHOW_ADMIN_TOOLBAR !== undefined ? s.SHOW_ADMIN_TOOLBAR : ((typeof App !== "undefined" && App.adminToolbarEnabled === false) ? 0 : 1);
+    const showAdminToolbar = !(rawAdminToolbar === 0 || rawAdminToolbar === "0" || rawAdminToolbar === false || String(rawAdminToolbar).toLowerCase() === "false");
 
     content.innerHTML = `
       <div style="padding: 0.25rem;">
@@ -3148,12 +3150,49 @@ const ManagerApp = {
               </div>
             </div>
           </div>
+
+          <!-- Khối 3: Phân Quyền Giao Diện & Công Cụ Kiểm Thử ADMIN -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; grid-column: 1 / -1;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #4338ca; margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.45rem;">
+              ${Icons.render('shield-check', { size: 19, color: '#4338ca' })} 3. Phân Quyền Hiển Thị Công Cụ ADMIN
+            </h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;">
+              <div style="flex: 1; min-width: 260px;">
+                <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-main);">
+                  Thanh "Công cụ ADMIN" trên đầu trang (Chuyển góc nhìn vai trò, Bảng RBAC & Test Di Chuyển)
+                </div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.45;">
+                  • Chỉ áp dụng riêng cho tài khoản gốc <strong>ADMIN</strong> (Nhân viên Sales và Quản lý luôn bị ẩn 100%).<br>
+                  • Khi <strong>TẮT</strong>, giao diện của ADMIN sẽ gọn sạch hoàn toàn cho vận hành thực tế; bạn có thể quay lại Tab Cài Đặt Hệ Thống này để <strong>BẬT</strong> lại bất cứ lúc nào.
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.65rem;">
+                <select id="cfg-show-admin-toolbar" class="form-control" style="width: auto; font-weight: 700; padding: 0.55rem 0.9rem; border-color: ${showAdminToolbar ? '#10b981' : '#94a3b8'};" onchange="ManagerApp.onToggleAdminToolbarQuick(this.value)">
+                  <option value="1" ${showAdminToolbar ? 'selected' : ''}>🟢 ĐANG BẬT (Hiển thị thanh Công cụ ADMIN)</option>
+                  <option value="0" ${!showAdminToolbar ? 'selected' : ''}>⚪ ĐANG TẮT (Ẩn gọn thanh Công cụ ADMIN)</option>
+                </select>
+              </div>
+            </div>
+          </div>
         </form>
       </div>
     `;
   },
 
+  async onToggleAdminToolbarQuick(val) {
+    const enabled = String(val) === "1";
+    const sel = document.getElementById("cfg-show-admin-toolbar");
+    if (sel) {
+      sel.style.borderColor = enabled ? "#10b981" : "#94a3b8";
+    }
+    if (typeof App !== "undefined" && typeof App.setAdminToolbarEnabled === "function") {
+      await App.setAdminToolbarEnabled(enabled, true);
+    }
+  },
+
   async saveSystemSettings() {
+    const showToolbarEl = document.getElementById("cfg-show-admin-toolbar");
+    const showToolbarVal = showToolbarEl ? Number(showToolbarEl.value) : ((typeof App !== "undefined" && App.adminToolbarEnabled === false) ? 0 : 1);
     const settingsPayload = {
       GPS_INTERVAL: Number(document.getElementById("cfg-gps-interval")?.value || 5),
       CUSTOMER_RADIUS: Number(document.getElementById("cfg-customer-radius")?.value || 200),
@@ -3169,7 +3208,8 @@ const ManagerApp = {
       DWELL_RADIUS: Number(document.getElementById("cfg-dwell-radius")?.value || 30),
       DWELL_THRESHOLD_MINUTES: Number(document.getElementById("cfg-dwell-minutes")?.value || 5),
       GPS_RETENTION_DAYS: Number(document.getElementById("cfg-gps-retention")?.value || 90),
-      DAILY_VISIT_TARGET: Number(document.getElementById("cfg-daily-target")?.value || 8)
+      DAILY_VISIT_TARGET: Number(document.getElementById("cfg-daily-target")?.value || 8),
+      SHOW_ADMIN_TOOLBAR: showToolbarVal
     };
 
     UI.showLoading("Đang lưu thông số cấu hình xuống MySQL...");
@@ -3177,6 +3217,9 @@ const ManagerApp = {
     UI.hideLoading();
 
     if (res && res.success) {
+      if (typeof App !== "undefined" && typeof App.setAdminToolbarEnabled === "function") {
+        await App.setAdminToolbarEnabled(showToolbarVal === 1, false);
+      }
       UI.showToast(res.message || "Đã lưu cấu hình thông số hệ thống thành công!", "success");
     } else {
       UI.showToast((res && res.message) || "Không thể lưu cấu hình hệ thống!", "danger");

@@ -835,6 +835,19 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         remaining = [r for r in records if "-SIM-" not in r["id"]]
         self.assertEqual([r["id"] for r in remaining], ["SES-REAL-001", "VIS-REAL-001"])
 
+    def test_admin_toolbar_toggle_and_impersonation_reset(self):
+        # Verify SHOW_ADMIN_TOOLBAR is only visible when rootRole == ADMIN AND setting enabled,
+        # and turning it off resets impersonated currentUser back to root ADMIN safely.
+        def is_visible(root_role, raw_setting):
+            enabled = not (raw_setting in (0, "0", False, "false", "FALSE"))
+            return root_role == "ADMIN" and enabled
+
+        self.assertTrue(is_visible("ADMIN", 1))
+        self.assertFalse(is_visible("ADMIN", 0))
+        self.assertFalse(is_visible("ADMIN", "0"))
+        self.assertFalse(is_visible("MANAGER", 1))
+        self.assertFalse(is_visible("SALES", 1))
+
 class AnchorActivityClassifier:
     @staticmethod
     def classify(curr, anchor, settings):

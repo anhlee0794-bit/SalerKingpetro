@@ -1,5 +1,13 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Xóa Cấu Hình Google Apps Script & Thêm Công Tắc Bật/Tắt Công Cụ ADMIN (Hoàn Thành 2026-11-27)
+- [x] **1. Gỡ bỏ hoàn toàn Cấu hình Google Apps Script & Reset Mock Data cũ (`app.js`)**: Dọn sạch hộp thoại `openSettingsDialog()` và `resetMockData()` không còn cần thiết khi chạy MySQL Production.
+- [x] **2. Tùy ý Bật/Tắt Thanh Công Cụ ADMIN trong Cài Đặt Hệ Thống (`manager_app.js`, `app.js`, `api.php`)**:
+  - [x] Thêm thông số `SHOW_ADMIN_TOOLBAR` lưu trực tiếp trên MySQL `settings`.
+  - [x] Thêm **Khối 3: Phân Quyền Hiển Thị Công Cụ ADMIN** trong Tab 9 (`Cài Đặt Hệ Thống`) cho phép ADMIN bật/tắt tức thì (tự trả về góc nhìn ADMIN gốc nếu đang đóng vai nhân viên khác).
+- [x] **3. Kiểm thử & Triển khai**: Pass **35/35** unit tests, đồng bộ FTP nguyên tử lên `hiepphucduc.vn` (`?v=20261127d`) và đẩy lên GitHub.
+
+
 ## Nâng Cấp Bộ Mô Phỏng Lộ Trình & Di Chuyển Dành Riêng Cho ADMIN (Hoàn Thành 2026-11-27)
 - [x] **1. Backend API Mô phỏng & Dọn dẹp an toàn (`backend-php/api.php`)**:
   - [x] Thêm `simulateSalesRoute` (chỉ `ADMIN`) sinh chuỗi tọa độ di chuyển `MOVING` + dừng chăm sóc `STATIONARY` + điểm Check-in mẫu qua 2–4 đại lý thực tế với tiền tố riêng `SES-SIM-*`, `GPS-SIM-*`, `VIS-SIM-*` (bảo toàn 100% công nợ/tồn kho thật).

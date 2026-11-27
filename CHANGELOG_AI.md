@@ -1,5 +1,19 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Xóa Bỏ Cấu Hình Google Apps Script Cũ & Bổ Sung Quyền Bật/Tắt Thanh Công Cụ ADMIN Trong Cài Đặt Hệ Thống
+- **Mục đích / Bối cảnh**: Dọn bỏ hộp thoại `Cấu Hình Google Apps Script` và nút `Reset Data` (Mock Storage) không còn dùng trên hệ thống MySQL thực tế; đồng thời cho phép `ADMIN` tùy ý Bật / Tắt thanh `Công cụ ADMIN` ngay trong Tab 9 (`Cài Đặt Hệ Thống`).
+- **Các file thay đổi (Affected Files)**:
+  - `frontend/js/app.js`:
+    - Xóa hoàn toàn hàm `openSettingsDialog()` (`Cấu Hình Google Apps Script`) và `resetMockData()` khỏi thanh công cụ `ADMIN`.
+    - Bổ sung cơ chế quản lý trạng thái hiển thị thanh công cụ `SHOW_ADMIN_TOOLBAR` (`isAdminToolbarVisible()`, `setAdminToolbarEnabled()`, `syncAdminToolbarSettingFromServer()`), tự động trả góc nhìn về tài khoản gốc `ADMIN` nếu tắt thanh công cụ khi đang đóng vai nhân viên khác; đổi nút cài đặt trên thanh sang lối tắt mở thẳng Tab 9 (`openAdminSystemSettings()`).
+  - `frontend/js/manager_app.js` & `backend-php/api.php`:
+    - Bổ sung khóa `SHOW_ADMIN_TOOLBAR` (mặc định `1`) trong `loadSettingsMap()`.
+    - Thêm **Khối 3: Phân Quyền Hiển Thị Công Cụ ADMIN** trong Tab 9 (`Cài Đặt Hệ Thống`) với tùy chọn Bật (`🟢 ĐANG BẬT`) / Tắt (`⚪ ĐANG TẮT`) áp dụng tức thì và lưu bền vững xuống bảng `settings` trên MySQL.
+  - `frontend/index.html` & `frontend/sw.js`: Nâng cache PWA lên `?v=20261127d`.
+  - `tests/test_logic.py`: Bổ sung `test_admin_toolbar_toggle_and_impersonation_reset` (**35/35 PASS**).
+- **Kết quả kiểm thử & xác minh**:
+  - Pass **35/35** unit tests, `node --check` 9/9 file JS sạch lỗi, đồng bộ nguyên tử FTP lên `hiepphucduc.vn` và kiểm tra trực tiếp khóa `SHOW_ADMIN_TOOLBAR` từ API `getSettings`.
+
 ## [2026-11-27] - Nâng Cấp Công Cụ "Test Di Chuyển" Thành Bộ Mô Phỏng Lộ Trình & Tuyến Đi Thực Tế Cho ADMIN
 - **Mục đích / Bối cảnh**: Nâng cấp nút `⚡ Test Di Chuyển` trên thanh công cụ `ADMIN` từ cơ chế nhảy tọa độ đơn điểm sang hộp thoại mô phỏng đầy đủ 2 chế độ: (1) Mô phỏng quãng đường chạy xe qua nhiều đại lý thực tế hiển thị ngay trên Bản đồ đường phố OSRM & Timeline, và (2) Đặt vị trí đứng trước 1 đại lý tùy chọn để test form Check-in, kèm nút dọn sạch dữ liệu test an toàn 100%.
 - **Các file thay đổi (Affected Files)**:

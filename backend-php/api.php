@@ -432,6 +432,7 @@ function loadSettingsMap(PDO $pdo)
         'OVERDUE_WARNING_DAYS'          => 1,
         'PROXIMITY_ALERT_RADIUS'        => 100,
         'DAILY_VISIT_TARGET'            => 8,
+        'SHOW_ADMIN_TOOLBAR'            => 1,
         'GPS_RETENTION_DAYS'            => defined('GPS_LOG_RETENTION_DAYS') ? GPS_LOG_RETENTION_DAYS : 90
     ];
     try {
