@@ -281,7 +281,7 @@ const SalesApp = {
           <div style="font-size: 0.78rem; margin-top: 0.35rem; display: flex; gap: 0.65rem; flex-wrap: wrap; color: #1e40af;">
             <span>Đơn mới: <strong>+${v.NewOrderQty || 0} ${v.NewOrderUnit || 'Thùng'}</strong>${v.OrderTotalAmount > 0 ? ` (${Number(v.OrderTotalAmount).toLocaleString('vi-VN')}đ)` : ''}</span>
             <span>Giao: <strong>${v.DistributedQty || 0} ${v.DistributedUnit || 'Thùng'}</strong></span>
-            ${v.PhotoUrl ? `<span style="color: #7c3aed;">📷 Có ảnh</span>` : ''}
+            ${v.PhotoUrl ? `<button type="button" onclick="UI.showPhotoLightbox('${v.PhotoUrl}', '${String(v.CustomerName || v.CustomerID || '').replace(/'/g, "\\'")}')" style="border: 1px solid #ddd6fe; background: #f5f3ff; color: #6d28d9; border-radius: 5px; padding: 1px 7px; font-size: 0.74rem; font-weight: 700; cursor: pointer;">📷 Xem ảnh chụp</button>` : ''}
           </div>
         </div>
       `;

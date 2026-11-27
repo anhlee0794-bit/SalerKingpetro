@@ -570,11 +570,24 @@ const ManagerApp = {
             const distInfo = (v.DistanceToCustomer !== null && v.DistanceToCustomer !== undefined)
               ? `<br>Khoảng cách tới cửa hàng: <strong>${v.DistanceToCustomer >= 1000 ? (v.DistanceToCustomer / 1000).toFixed(2) + ' km' : v.DistanceToCustomer + 'm'}</strong>`
               : '';
+            const safeCustTitle = String(v.CustomerName || v.CustomerID || "Điểm bán").replace(/'/g, "\\'");
+            const mapPhotoHtml = v.PhotoUrl ? `
+              <div style="margin-top: 6px;">
+                <img
+                  src="${v.PhotoUrl}"
+                  alt="Ảnh điểm bán"
+                  onclick="UI.showPhotoLightbox('${v.PhotoUrl}', '${safeCustTitle} (${v.CheckInTime ? String(v.CheckInTime).substring(0, 16) : ''})')"
+                  style="width: 100%; max-width: 190px; height: 105px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer;"
+                  title="Bấm để phóng to ảnh"
+                />
+              </div>
+            ` : '';
             vMarker.bindPopup(`
-              <div style="font-size: 0.86rem;">
+              <div style="font-size: 0.86rem; min-width: 180px;">
                 <strong style="color: #7e22ce;">🟣 Check-in: ${v.CustomerName || v.CustomerID}</strong><br>
                 Giờ vào: <strong>${v.CheckInTime ? String(v.CheckInTime).substring(11, 16) : '--'}</strong> (${v.Duration || 1} phút)${distInfo}<br>
                 Kết quả: <strong>${v.Result || '--'}</strong>
+                ${mapPhotoHtml}
               </div>
             `);
             this.mapMarkers.push(vMarker);
@@ -734,6 +747,20 @@ const ManagerApp = {
       if (item.type === "VISIT_CHECKIN") dotClass = "dot-visit";
       if (item.type === "STATIONARY") dotClass = "dot-stationary";
 
+      const safeTimelineCap = String(item.title || "Ảnh điểm bán").replace(/'/g, "\\'");
+      const itemPhotoHtml = item.photoUrl ? `
+        <div style="margin-top: 0.5rem;">
+          <button
+            type="button"
+            onclick="UI.showPhotoLightbox('${item.photoUrl}', '${safeTimelineCap} (${item.displayTime || ''})')"
+            style="display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.35rem 0.65rem 0.35rem 0.35rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; color: #2563eb; font-weight: 700; font-size: 0.78rem;"
+          >
+            <img src="${item.photoUrl}" alt="Ảnh điểm bán" style="width: 58px; height: 44px; object-fit: cover; border-radius: 5px;" />
+            <span>📷 Phóng to ảnh chụp thực tế</span>
+          </button>
+        </div>
+      ` : '';
+
       return `
         <div class="timeline-item">
           <div class="timeline-dot ${dotClass}"></div>
@@ -741,6 +768,7 @@ const ManagerApp = {
             <div class="timeline-time">${item.displayTime}</div>
             <div class="timeline-title">${item.title}</div>
             <div class="timeline-desc">${item.description}</div>
+            ${itemPhotoHtml}
           </div>
         </div>
       `;
@@ -1574,12 +1602,17 @@ const ManagerApp = {
         </div>
       ` : '';
 
+      const safeVisitCap = String(`${cust.CustomerName || ''} - ${v.salesName || v.SalesName || ''}`).replace(/'/g, "\\'");
       const photoHtml = v.PhotoUrl ? `
         <div style="margin-top: 0.45rem;">
-          <a href="${v.PhotoUrl}" target="_blank" rel="noopener" style="display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none; font-size: 0.78rem; color: #2563eb; font-weight: 600;">
-            <img src="${v.PhotoUrl}" alt="Ảnh điểm bán" style="width: 64px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #cbd5e1;" />
-            <span>📷 Xem ảnh thực tế tại điểm bán</span>
-          </a>
+          <button
+            type="button"
+            onclick="UI.showPhotoLightbox('${v.PhotoUrl}', '${safeVisitCap}')"
+            style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.65rem 0.35rem 0.35rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer; font-size: 0.78rem; color: #2563eb; font-weight: 700;"
+          >
+            <img src="${v.PhotoUrl}" alt="Ảnh điểm bán" style="width: 64px; height: 48px; object-fit: cover; border-radius: 6px;" />
+            <span>📷 Phóng to ảnh thực tế tại điểm bán</span>
+          </button>
         </div>
       ` : '';
 

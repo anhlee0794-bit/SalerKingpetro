@@ -63,6 +63,35 @@ const UI = {
 
   hideLoading() {
     this.closeModal();
+  },
+
+  showPhotoLightbox(photoUrl, caption = "Ảnh thực tế tại điểm bán") {
+    if (!photoUrl) return;
+    let lb = document.getElementById("photo-lightbox-overlay");
+    if (!lb) {
+      lb = document.createElement("div");
+      lb.id = "photo-lightbox-overlay";
+      lb.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,0.86);backdrop-filter:blur(4px);z-index:2500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem;";
+      lb.onclick = (e) => {
+        if (e.target === lb) lb.remove();
+      };
+      document.body.appendChild(lb);
+    }
+    const safeCap = String(caption || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    lb.innerHTML = `
+      <div style="max-width: 820px; width: 100%; background: #ffffff; border-radius: 14px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.45);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; gap: 0.5rem;">
+          <strong style="font-size: 0.92rem; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">📷 ${safeCap}</strong>
+          <div style="display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+            <a href="${photoUrl}" target="_blank" rel="noopener" style="font-size: 0.78rem; font-weight: 700; color: #2563eb; text-decoration: none; padding: 0.3rem 0.6rem; background: #eff6ff; border-radius: 6px;">Mở tab gốc ↗</a>
+            <button type="button" onclick="document.getElementById('photo-lightbox-overlay')?.remove()" style="border: none; background: #f1f5f9; width: 32px; height: 32px; border-radius: 8px; font-size: 1.25rem; cursor: pointer; color: #334155;">&times;</button>
+          </div>
+        </div>
+        <div style="background: #0f172a; display: flex; align-items: center; justify-content: center; max-height: 78vh; overflow: auto;">
+          <img src="${photoUrl}" alt="${safeCap}" style="max-width: 100%; max-height: 76vh; object-fit: contain; display: block;" />
+        </div>
+      </div>
+    `;
   }
 };
 
@@ -230,7 +259,7 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127h").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127i").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });

@@ -13,6 +13,7 @@
 - **Kết quả kiểm thử & xác minh**:
   - Sửa xung đột CSS `.manager-dashboard-container` (`flex-direction: column` cũ ghi đè lên `.app-shell-layout` làm đẩy nội dung xuống dưới Sidebar trên Desktop) sang `flex-direction: row` (`?v=20261127g`).
   - Chuẩn hóa bố cục Mobile của Tab 9 (`Cài Đặt Hệ Thống`): đổi ô `<select>` dài sang cụm nút gạt 2 trạng thái `🟢 Đang Bật` / `⚪ Đang Tắt` tự xuống dòng vừa khít màn hình nhỏ, sửa `minmax(min(100%, 340px), 1fr)` chống tràn ngang toàn trang và ẩn tên tài khoản trên Header `< 560px` để không đè chữ `SALES FIELD` (`?v=20261127h`).
+  - Bổ sung trình phóng to ảnh `UI.showPhotoLightbox()` và hiển thị trực tiếp ảnh chụp điểm bán tại cả 3 vị trí cho Quản lý/Admin (`Chi Tiết & Timeline`, ghim tím `🟣 Check-in` trên `Bản Đồ`, và `Khách Hàng -> Xem -> Lịch Sử Chăm Sóc`) cũng như trong `Kết Quả Của Tôi` của Sales (`?v=20261127i`).
   - Quét kiểm tra tĩnh `full_cross_audit.py` đạt **0 lỗi**, pass **36/36** unit tests, `node --check` 9/9 file JS sạch lỗi và đồng bộ nguyên tử FTP (bao gồm `css/style.css`) lên `hiepphucduc.vn`.
 
 ## [2026-11-27] - Hoàn Thiện 5 Điểm Trải Nghiệm & Luồng Phụ Cuối Cùng (Tìm Kiếm Giữ Con Trỏ, Gom Duyệt Điểm Mới, CSV Excel UTF-8 BOM, Offline Điểm Mới & Cảnh Báo Kết Ca)
