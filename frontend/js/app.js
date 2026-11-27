@@ -835,88 +835,243 @@ const App = {
     };
   },
 
-  simulateMovement() {
+  async simulateMovement() {
     if (!this.isAdminSession()) {
       return UI.showToast("Từ chối truy cập: Tính năng giả lập GPS kiểm thử chỉ dành riêng cho ADMIN!", "danger");
     }
-    let targetLat = 10.7685;
-    let targetLng = 106.6892;
-    let targetName = "Đại lý Minh Phát";
 
+    UI.showLoading("Đang chuẩn bị danh sách tuyến mô phỏng...");
+    let salesUsers = (this.users || []).filter(u => u.Role === "SALES");
+    let customers = [];
     try {
-      let cust = null;
-      if (typeof SalesApp !== "undefined" && SalesApp.activeVisit) {
-        cust = (SalesApp.customers || []).find(c => c.CustomerID === SalesApp.activeVisit.CustomerID);
-      } else if (typeof SalesApp !== "undefined" && SalesApp.customers && SalesApp.customers.length > 0) {
-        cust = SalesApp.customers.find(c => c.CustomerID === "CUST-001" || (c.CustomerName && c.CustomerName.includes("Minh Phát"))) || SalesApp.customers[0];
-      } else if (typeof MockDatabase !== "undefined") {
-        const db = MockDatabase.getDB();
-        cust = (db.CUSTOMERS || []).find(c => c.CustomerID === "CUST-001" || (c.CustomerName && c.CustomerName.includes("Minh Phát"))) || (db.CUSTOMERS || [])[0];
+      const [uRes, cRes] = await Promise.all([
+        ApiService.getUsers("ADMIN"),
+        ApiService.getCustomers(null, "MANAGER")
+      ]);
+      if (uRes && uRes.success && Array.isArray(uRes.users)) {
+        this.users = uRes.users.map(x => this.normalizeUser(x));
+        salesUsers = this.users.filter(u => u.Role === "SALES");
       }
-
-      if (cust) {
-        targetLat = Number(cust.Latitude) || 10.7685;
-        targetLng = Number(cust.Longitude) || 106.6892;
-        targetName = cust.CustomerName ? cust.CustomerName.replace("Đại lý Tạp Hóa ", "Đại lý ") : "Đại lý Minh Phát";
+      if (cRes && Array.isArray(cRes.customers)) {
+        customers = cRes.customers.filter(c => c.Latitude && c.Longitude && (Number(c.Latitude) !== 0 || Number(c.Longitude) !== 0));
       }
     } catch (e) {
-      console.warn("[App.simulateMovement] Customer target detection fallback:", e);
+      console.warn("[App.simulateMovement] Load lists fallback:", e);
     }
+    UI.hideLoading();
+
+    this._simCustomersCache = customers;
+    const defaultSalesId = (this.currentUser && this.currentUser.Role === "SALES")
+      ? this.currentUser.UserID
+      : ((typeof ManagerApp !== "undefined" && ManagerApp.selectedSalesId && ManagerApp.selectedSalesId !== "ALL")
+        ? ManagerApp.selectedSalesId
+        : (salesUsers[0] ? salesUsers[0].UserID : ""));
+    const todayStr = (typeof ManagerApp !== "undefined" && ManagerApp.selectedDate)
+      ? ManagerApp.selectedDate
+      : new Date().toISOString().split("T")[0];
+    const isMockGpsOn = (typeof GeoService !== "undefined" && GeoService.isMockGpsEnabled);
+
+    const content = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <div style="background: linear-gradient(135deg, #0891b2, #2563eb); color: #fff; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+            ${Icons.render('zap', { size: 20, color: '#fff' })}
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text-main);">Bộ Mô Phỏng Lộ Trình & Di Chuyển (ADMIN)</h3>
+            <div style="font-size: 0.76rem; color: var(--text-muted);">Giúp Admin ngồi văn phòng kiểm tra trực quan Bản đồ đường đi, Timeline & Check-in</div>
+          </div>
+        </div>
+        <button onclick="UI.closeModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+      </div>
+
+      <!-- CHẾ ĐỘ 1: MÔ PHỎNG QUÃNG ĐƯỜNG CHẠY XE QUA NHIỀU ĐẠI LÝ -->
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 1rem; margin-bottom: 0.9rem;">
+        <div style="font-weight: 800; font-size: 0.92rem; color: #1e40af; margin-bottom: 0.35rem;">
+          🛵 Chế độ 1: Tạo Quãng Đường Chạy Xe Qua Nhiều Đại Lý (Xem trên Bản Đồ & Timeline)
+        </div>
+        <div style="font-size: 0.78rem; color: #334155; margin-bottom: 0.85rem; line-height: 1.45;">
+          Hệ thống sẽ sinh chuỗi tọa độ chạy xe dọc đường từ lúc mở ca qua các đại lý thực tế, sau đó <strong>tự động mở Tab Bản Đồ và phóng to vào vệt đường xanh</strong> cho bạn xem ngay.
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.65rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="display: block; font-size: 0.76rem; font-weight: 700; color: #1e3a8a; margin-bottom: 0.25rem;">Nhân viên Sales mô phỏng</label>
+            <select id="sim-route-sales" class="form-control" style="padding: 0.45rem 0.6rem; font-size: 0.85rem; background: #fff;">
+              ${salesUsers.length > 0
+                ? salesUsers.map(s => `<option value="${s.UserID}" ${s.UserID === defaultSalesId ? 'selected' : ''}>${s.Name} (${s.UserID})</option>`).join("")
+                : `<option value="">-- Chưa có tài khoản SALES --</option>`}
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.76rem; font-weight: 700; color: #1e3a8a; margin-bottom: 0.25rem;">Số điểm đại lý đi qua</label>
+            <select id="sim-route-stops" class="form-control" style="padding: 0.45rem 0.6rem; font-size: 0.85rem; background: #fff;">
+              <option value="2">Đi qua 2 đại lý (~12 điểm GPS)</option>
+              <option value="3" selected>Đi qua 3 đại lý (~19 điểm GPS)</option>
+              <option value="4">Đi qua 4 đại lý (~25 điểm GPS)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.76rem; font-weight: 700; color: #1e3a8a; margin-bottom: 0.25rem;">Ngày chạy tuyến</label>
+            <input type="date" id="sim-route-date" class="form-control" value="${todayStr}" style="padding: 0.42rem 0.6rem; font-size: 0.85rem; background: #fff;" />
+          </div>
+        </div>
+
+        <label style="display: flex; align-items: center; gap: 0.45rem; font-size: 0.8rem; color: #1e3a8a; font-weight: 600; cursor: pointer; margin-bottom: 0.85rem;">
+          <input type="checkbox" id="sim-route-visits" checked style="width: 15px; height: 15px;" />
+          Tạo kèm các điểm ghim tím Check-in gặp khách & đơn hàng mẫu tại mỗi đại lý
+        </label>
+
+        <button type="button" onclick="App.runRouteSimulation()" style="width: 100%; padding: 0.7rem 1rem; border-radius: 8px; border: none; background: linear-gradient(135deg, #2563eb, #0891b2); color: #fff; font-weight: 800; font-size: 0.9rem; cursor: pointer; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
+          🚀 CHẠY MÔ PHỎNG & MỞ BẢN ĐỒ XEM TUYẾN ĐƯỜNG NGAY
+        </button>
+      </div>
+
+      <!-- CHẾ ĐỘ 2: ĐẶT VỊ TRÍ ĐỨNG TRƯỚC 1 CỬA HÀNG ĐỂ TEST FORM CHECK-IN -->
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; margin-bottom: 0.9rem;">
+        <div style="font-weight: 800; font-size: 0.88rem; color: var(--text-main); margin-bottom: 0.3rem;">
+          📍 Chế độ 2: Đứng Ngay Trước Cửa 1 Đại Lý (Để tự bấm nút Check-in bên màn hình Sales)
+        </div>
+        <div style="font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.65rem;">
+          Chuyển sang màn hình của nhân viên Sales và đặt GPS cách cửa hàng 5m để bạn thử tự bấm Check-in, chụp ảnh & lên đơn.
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <select id="sim-teleport-customer" class="form-control" style="flex: 1; min-width: 200px; padding: 0.45rem 0.6rem; font-size: 0.84rem;">
+            ${customers.length > 0
+              ? customers.map(c => `<option value="${c.CustomerID}">${c.CustomerName} (${c.AssignedSalesID || 'Chưa gán'})</option>`).join("")
+              : `<option value="">Đại lý mẫu (10.7685, 106.6892)</option>`}
+          </select>
+          <button type="button" onclick="App.teleportToCustomer()" style="padding: 0.48rem 0.9rem; border-radius: 7px; border: none; background: #0f766e; color: #fff; font-weight: 700; font-size: 0.82rem; cursor: pointer;">
+            📍 Đứng trước đại lý này
+          </button>
+          ${isMockGpsOn ? `
+            <button type="button" onclick="GeoService.disableMockGps(); UI.closeModal(); UI.showToast('Đã tắt GPS giả lập, quay về định vị thật!', 'info');" style="padding: 0.48rem 0.75rem; border-radius: 7px; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-weight: 600; font-size: 0.8rem; cursor: pointer;">
+              🛰️ Tắt GPS giả
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- DỌN SẠCH DỮ LIỆU TEST AN TOÀN 100% -->
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed var(--border); flex-wrap: wrap;">
+        <span style="font-size: 0.75rem; color: var(--text-muted);">
+          🛡️ Dữ liệu mô phỏng được gắn mã riêng (<code>SES-SIM-*</code>), không làm thay đổi công nợ/tồn kho thật.
+        </span>
+        <button type="button" onclick="App.clearRouteSimulation()" style="padding: 0.45rem 0.85rem; border-radius: 6px; border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; font-weight: 700; font-size: 0.78rem; cursor: pointer;">
+          🧹 Xóa sạch dữ liệu Test đã tạo
+        </button>
+      </div>
+    `;
+
+    UI.showModal(content);
+  },
+
+  async runRouteSimulation() {
+    if (!this.isAdminSession()) return;
+    const salesEl = document.getElementById("sim-route-sales");
+    const stopsEl = document.getElementById("sim-route-stops");
+    const dateEl = document.getElementById("sim-route-date");
+    const visitsEl = document.getElementById("sim-route-visits");
+
+    const salesId = salesEl ? salesEl.value : "";
+    const stopCount = stopsEl ? Number(stopsEl.value) || 3 : 3;
+    const date = dateEl && dateEl.value ? dateEl.value : new Date().toISOString().split("T")[0];
+    const includeVisits = visitsEl ? visitsEl.checked : true;
+
+    if (!salesId) {
+      return UI.showToast("Vui lòng tạo hoặc chọn ít nhất 1 tài khoản nhân viên SALES!", "warning");
+    }
+
+    UI.showLoading("Đang tạo lộ trình di chuyển & dựng đường đi trên bản đồ...");
+    const res = await ApiService.simulateSalesRoute({ salesId, stopCount, date, includeVisits });
+    UI.hideLoading();
+
+    if (!res || !res.success) {
+      return UI.showToast((res && res.message) || "Không thể tạo lộ trình mô phỏng!", "danger");
+    }
+
+    UI.closeModal();
+
+    // Nếu Admin đang đứng ở góc nhìn SALES, tự quay về góc nhìn ADMIN để mở Bản đồ quản lý xem tuyến đường ngay
+    if (this.currentUser && this.currentUser.Role === "SALES" && this.authSession && this.authSession.rootUser) {
+      await this.applyUserRole(this.authSession.rootUser);
+    }
+
+    if (typeof ManagerApp !== "undefined") {
+      ManagerApp.selectedSalesId = salesId;
+      ManagerApp.selectedDate = date;
+      await ManagerApp.switchTab("map");
+    }
+
+    UI.showToast(res.message || "Đã tạo lộ trình mô phỏng! Đang hiển thị tuyến đường trên Bản đồ.", "success");
+  },
+
+  async teleportToCustomer() {
+    if (!this.isAdminSession()) return;
+    const selEl = document.getElementById("sim-teleport-customer");
+    const custId = selEl ? selEl.value : "";
+    const cust = (this._simCustomersCache || []).find(c => c.CustomerID === custId);
+
+    const targetLat = cust ? Number(cust.Latitude) + 0.00004 : 10.7685;
+    const targetLng = cust ? Number(cust.Longitude) + 0.00004 : 106.6892;
+    const targetName = cust ? cust.CustomerName : "Đại lý Minh Phát";
 
     if (typeof GeoService !== "undefined" && typeof GeoService.enableMockGps === "function") {
       GeoService.enableMockGps({
-        coords: {
-          latitude: targetLat,
-          longitude: targetLng,
-          accuracy: 10,
-          speed: 0
-        },
+        coords: { latitude: targetLat, longitude: targetLng, accuracy: 8, speed: 0 },
         locationName: targetName
       });
     }
 
-    if (this.currentUser && this.currentUser.Role === "SALES" && typeof SalesApp !== "undefined") {
-      if (SalesApp.activeSession) {
-        const db = (typeof MockDatabase !== "undefined") ? MockDatabase.getDB() : null;
-        if (db) {
-          try {
-            db.GPS_LOGS.push({
-              GPSLogID: "GPS-MOCK-" + Date.now(),
-              SessionID: SalesApp.activeSession.SessionID,
-              SalesID: this.currentUser.UserID,
-              Timestamp: new Date().toISOString(),
-              Latitude: targetLat,
-              Longitude: targetLng,
-              Accuracy: 10,
-              Speed: 0,
-              ActivityStatus: "STATIONARY"
-            });
-            MockDatabase.saveDB(db);
-          } catch (err) {
-            console.warn("[App.simulateMovement] MockDatabase log error:", err);
-          }
-        }
-      }
+    UI.closeModal();
 
+    // Tự động chuyển sang góc nhìn nhân viên SALES phụ trách đại lý đó để Admin thấy ngay màn hình đi tuyến
+    let targetSalesUser = null;
+    if (cust && cust.AssignedSalesID) {
+      targetSalesUser = (this.users || []).find(u => u.UserID === cust.AssignedSalesID && u.Role === "SALES");
+    }
+    if (!targetSalesUser) {
+      targetSalesUser = (this.currentUser && this.currentUser.Role === "SALES")
+        ? this.currentUser
+        : (this.users || []).find(u => u.Role === "SALES");
+    }
+
+    if (targetSalesUser && (!this.currentUser || this.currentUser.UserID !== targetSalesUser.UserID)) {
+      await this.applyUserRole(targetSalesUser);
+    } else if (typeof SalesApp !== "undefined") {
       if (typeof SalesApp.updateCurrentPositionUi === "function") {
-        SalesApp.updateCurrentPositionUi(targetLat, targetLng, 10, "STATIONARY (MOCK GPS)");
+        SalesApp.updateCurrentPositionUi(targetLat, targetLng, 8, "STATIONARY (MOCK GPS)");
       }
       if (typeof SalesApp.renderCustomerCards === "function") {
         SalesApp.renderCustomerCards();
       }
     }
 
-    if (this.currentUser && (this.currentUser.Role === "MANAGER" || this.currentUser.Role === "ADMIN") && typeof ManagerApp !== "undefined") {
-      if (ManagerApp.activeTab === "map" && typeof ManagerApp.onMapFilterChange === "function") {
-        ManagerApp.onMapFilterChange();
-      } else if (ManagerApp.activeTab === "dashboard" && typeof ManagerApp.loadDashboardData === "function") {
-        ManagerApp.loadDashboardData();
-      } else if (ManagerApp.activeTab === "timeline" && typeof ManagerApp.renderTimelineTab === "function") {
-        ManagerApp.renderTimelineTab();
-      }
+    UI.showToast(`Đã đưa góc nhìn sang ${targetSalesUser ? targetSalesUser.Name : 'SALES'} và đứng cách "${targetName}" ~5m!`, "success");
+  },
+
+  async clearRouteSimulation() {
+    if (!this.isAdminSession()) return;
+    if (!confirm("Xóa toàn bộ lộ trình Test (SES-SIM-*)? Dữ liệu đi làm thật của nhân viên sẽ được giữ nguyên 100%.")) {
+      return;
     }
 
-    UI.showToast(`Đã kích hoạt GPS giả lập tại ${targetName} (${targetLat.toFixed(4)}, ${targetLng.toFixed(4)})`, "success");
+    UI.showLoading("Đang dọn sạch dữ liệu mô phỏng...");
+    const res = await ApiService.clearSimulatedRoutes();
+    UI.hideLoading();
+
+    if (res && res.success) {
+      if (typeof GeoService !== "undefined" && typeof GeoService.disableMockGps === "function") {
+        GeoService.disableMockGps();
+      }
+      UI.closeModal();
+      if (typeof ManagerApp !== "undefined" && this.currentUser && this.currentUser.Role !== "SALES") {
+        await ManagerApp.switchTab(ManagerApp.activeTab || "map");
+      }
+      UI.showToast(res.message || "Đã xóa sạch lộ trình mô phỏng!", "success");
+    } else {
+      UI.showToast((res && res.message) || "Lỗi khi xóa dữ liệu mô phỏng!", "danger");
+    }
   },
 
   /**

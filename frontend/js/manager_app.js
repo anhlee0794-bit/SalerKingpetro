@@ -497,6 +497,25 @@ const ManagerApp = {
         });
 
         if (rawLatLngs.length > 0) {
+          // Hiển thị chấm xanh lá (Vị trí mới nhất của Sales trên lộ trình)
+          const lastPt = validRoute[validRoute.length - 1];
+          const headMarker = L.circleMarker([Number(lastPt.Latitude), Number(lastPt.Longitude)], {
+            radius: 10,
+            fillColor: "#10b981",
+            color: "#ffffff",
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 1
+          }).addTo(this.mapInstance);
+          headMarker.bindPopup(`
+            <div style="font-size: 0.88rem;">
+              <strong style="color: #059669;">🟢 Vị trí mới nhất: ${(detailRes.user && detailRes.user.Name) || targetSalesId}</strong><br>
+              Trạng thái: <strong>${lastPt.ActivityStatus}</strong><br>
+              Cập nhật lúc: <strong>${lastPt.Timestamp ? String(lastPt.Timestamp).substring(11, 16) : '--'}</strong>
+            </div>
+          `);
+          this.mapMarkers.push(headMarker);
+
           // Snap route to road network using OSRM
           const snappedLatLngs = await this.fetchRoadRoute(rawLatLngs);
 

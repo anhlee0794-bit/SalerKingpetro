@@ -1,5 +1,15 @@
 # CURRENT TASK - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## Nâng Cấp Bộ Mô Phỏng Lộ Trình & Di Chuyển Dành Riêng Cho ADMIN (Hoàn Thành 2026-11-27)
+- [x] **1. Backend API Mô phỏng & Dọn dẹp an toàn (`backend-php/api.php`)**:
+  - [x] Thêm `simulateSalesRoute` (chỉ `ADMIN`) sinh chuỗi tọa độ di chuyển `MOVING` + dừng chăm sóc `STATIONARY` + điểm Check-in mẫu qua 2–4 đại lý thực tế với tiền tố riêng `SES-SIM-*`, `GPS-SIM-*`, `VIS-SIM-*` (bảo toàn 100% công nợ/tồn kho thật).
+  - [x] Thêm `clearSimulatedRoutes` (chỉ `ADMIN`) xóa sạch dữ liệu mô phỏng bằng 1 chạm.
+- [x] **2. Giao diện Bộ Mô Phỏng 2 Chế Độ & Tự Phóng Bản Đồ (`app.js`, `manager_app.js`, `api.js`)**:
+  - [x] Chế độ 1: Tạo quãng đường chạy xe qua nhiều đại lý và tự động mở Tab Bản đồ phóng to vào tuyến đường xanh vừa dựng + hiển thị ghim `🟢` vị trí mới nhất.
+  - [x] Chế độ 2: Chọn 1 đại lý bất kỳ để đưa góc nhìn Sales đứng cách cửa hàng 5m phục vụ test form Check-in.
+- [x] **3. Kiểm thử & Triển khai**: Pass **34/34** unit tests, đồng bộ FTP nguyên tử lên `hiepphucduc.vn` (`?v=20261127c`) và đẩy lên GitHub.
+
+
 ## Rà Soát Chéo Quy Trình Nghiệp Vụ Đầu-Cuối & Sửa 6 Điểm Đứt Luồng Vận Hành (Hoàn Thành 2026-11-27)
 - [x] **1. Khôi phục & Sửa triệt để luồng Phê duyệt Thay đổi Đại lý (Tab 5)**:
   - [x] Sửa lỗi nghiêm trọng nút **Từ chối (`"REJECT"`)** bị ép kiểu boolean thành `true` (tự duyệt nhầm) trên cả `manager_app.js`, `api.js` và `api.php`.

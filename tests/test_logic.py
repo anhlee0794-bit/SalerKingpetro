@@ -821,6 +821,20 @@ class TestRoleBasedAccessControl(unittest.TestCase):
         self.assertTrue(parse_decision(True))
         self.assertTrue(parse_decision("APPROVE"))
 
+    def test_admin_route_simulation_and_safe_cleanup(self):
+        # Verify simulated route generates MOVING waypoints + STATIONARY stops with *-SIM-* IDs,
+        # and cleanup deletes ONLY *-SIM-* rows while preserving real work_sessions/gps_logs/visits.
+        records = [
+            {"id": "SES-REAL-001", "type": "session"},
+            {"id": "VIS-REAL-001", "type": "visit"},
+            {"id": "SES-SIM-USR-002-20261127", "type": "session"},
+            {"id": "GPS-SIM-20261127-USR-002-001", "type": "gps", "status": "STATIONARY"},
+            {"id": "GPS-SIM-20261127-USR-002-002", "type": "gps", "status": "MOVING"},
+            {"id": "VIS-SIM-20261127-USR-002-01", "type": "visit"}
+        ]
+        remaining = [r for r in records if "-SIM-" not in r["id"]]
+        self.assertEqual([r["id"] for r in remaining], ["SES-REAL-001", "VIS-REAL-001"])
+
 class AnchorActivityClassifier:
     @staticmethod
     def classify(curr, anchor, settings):

@@ -513,6 +513,14 @@ const ApiService = {
     return this.request("cleanupGpsLogs", { retentionDays });
   },
 
+  async simulateSalesRoute(options = {}) {
+    return this.request("simulateSalesRoute", options);
+  },
+
+  async clearSimulatedRoutes() {
+    return this.request("clearSimulatedRoutes", {});
+  },
+
   // Customer Info Approval Flow
   async requestCustomerUpdate(salesId, customerId, customerName, oldData, newData, reason) {
     return this.request("requestCustomerUpdate", { salesId, customerId, customerName, oldData, newData, reason });

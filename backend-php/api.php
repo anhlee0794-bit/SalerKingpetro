@@ -2596,6 +2596,255 @@ try {
             echo json_encode(['success' => true, 'message' => "Đã xóa mặt hàng {$row['name']} khỏi danh mục!"], JSON_UNESCAPED_UNICODE);
             break;
 
+        case 'simulateSalesRoute':
+            requireAuth($pdo, $params, ['ADMIN']);
+            $salesId = trim((string)($params['salesId'] ?? ''));
+            if (empty($salesId)) {
+                $sFirst = $pdo->query("SELECT `user_id` FROM `users` WHERE `role` = 'SALES' AND `status` = 'ACTIVE' ORDER BY `user_id` ASC LIMIT 1")->fetch();
+                $salesId = $sFirst ? $sFirst['user_id'] : '';
+            }
+            if (empty($salesId)) {
+                echo json_encode(['success' => false, 'message' => 'Chưa có tài khoản nhân viên SALES nào đang hoạt động để mô phỏng!'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            $uChk = $pdo->prepare("SELECT `user_id`, `name` FROM `users` WHERE `user_id` = ? LIMIT 1");
+            $uChk->execute([$salesId]);
+            $salesUser = $uChk->fetch();
+            if (!$salesUser) {
+                echo json_encode(['success' => false, 'message' => 'Nhân viên Sales được chọn không tồn tại!'], JSON_UNESCAPED_UNICODE);
+                break;
+            }
+
+            $stopCount = max(2, min(6, (int)($params['stopCount'] ?? 3)));
+            $rawIncVisits = $params['includeVisits'] ?? true;
+            $includeVisits = ($rawIncVisits === true || $rawIncVisits === 1 || in_array(strtoupper(trim((string)$rawIncVisits)), ['1', 'TRUE', 'YES'], true));
+            $targetDate = !empty($params['date']) ? substr(trim((string)$params['date']), 0, 10) : date('Y-m-d');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate)) {
+                $targetDate = date('Y-m-d');
+            }
+
+            // Lấy danh sách đại lý có tọa độ thực tế (ưu tiên tuyến của Sales đang chọn, thiếu thì lấy đại lý khác có tọa độ)
+            $cStmt = $pdo->prepare("SELECT `customer_id`, `customer_name`, `latitude`, `longitude`, `address` FROM `customers` WHERE `status` = 'ACTIVE' AND `latitude` IS NOT NULL AND `longitude` IS NOT NULL AND (`latitude` != 0 OR `longitude` != 0) ORDER BY CASE WHEN `assigned_sales_id` = ? THEN 0 ELSE 1 END, `customer_id` ASC LIMIT " . (int)$stopCount);
+            $cStmt->execute([$salesId]);
+            $stops = $cStmt->fetchAll();
+
+            if (count($stops) < 2) {
+                $stops = [
+                    ['customer_id' => 'SIM-C1', 'customer_name' => 'Đại lý Minh Phát (Mẫu)', 'latitude' => 10.7685, 'longitude' => 106.6892, 'address' => 'Quận 1, TP.HCM'],
+                    ['customer_id' => 'SIM-C2', 'customer_name' => 'Đại lý Hoàng Gia (Mẫu)', 'latitude' => 10.7768, 'longitude' => 106.6985, 'address' => 'Quận 3, TP.HCM'],
+                    ['customer_id' => 'SIM-C3', 'customer_name' => 'Cửa hàng Thành Đạt (Mẫu)', 'latitude' => 10.7845, 'longitude' => 106.7062, 'address' => 'Bình Thạnh, TP.HCM']
+                ];
+                $stops = array_slice($stops, 0, $stopCount);
+            }
+
+            $dateCompact = str_replace('-', '', $targetDate);
+            $simSessionId = "SES-SIM-{$salesId}-{$dateCompact}";
+
+            $pdo->beginTransaction();
+            try {
+                // Dọn bản mô phỏng cũ của nhân viên này trong ngày đó (không đụng dữ liệu thật)
+                $pdo->prepare("DELETE FROM `visits` WHERE `session_id` = ? OR (`visit_id` LIKE 'VIS-SIM-%' AND `sales_id` = ? AND DATE(`check_in_time`) = ?)")
+                    ->execute([$simSessionId, $salesId, $targetDate]);
+                $pdo->prepare("DELETE FROM `gps_logs` WHERE `session_id` = ?")
+                    ->execute([$simSessionId]);
+                $pdo->prepare("DELETE FROM `work_sessions` WHERE `session_id` = ?")
+                    ->execute([$simSessionId]);
+
+                // Tính mốc giờ bắt đầu hợp lý (nếu là hôm nay thì lùi trước giờ hiện tại để không vượt tương lai)
+                $totalEstimatedMins = count($stops) * 30 + 15;
+                if ($targetDate === date('Y-m-d')) {
+                    $latestStart = time() - ($totalEstimatedMins * 60);
+                    $eightAm = strtotime($targetDate . ' 08:00:00');
+                    $currTs = min($eightAm, $latestStart);
+                    $dayFloor = strtotime($targetDate . ' 06:00:00');
+                    if ($currTs < $dayFloor) {
+                        $currTs = $dayFloor;
+                    }
+                } else {
+                    $currTs = strtotime($targetDate . ' 08:00:00');
+                }
+
+                // Điểm xuất phát: cách đại lý đầu tiên ~1.1km
+                $currLat = round((float)$stops[0]['latitude'] - 0.0075, 6);
+                $currLng = round((float)$stops[0]['longitude'] - 0.0080, 6);
+                $startTimeStr = date('Y-m-d H:i:s', $currTs);
+
+                $insSession = $pdo->prepare("INSERT INTO `work_sessions` (`session_id`, `sales_id`, `date`, `check_in_time`, `check_in_lat`, `check_in_lng`, `check_in_accuracy`, `work_duration`, `status`) VALUES (?, ?, ?, ?, ?, ?, 12, 0, ?)");
+                $sessStatus = ($targetDate === date('Y-m-d')) ? 'WORKING' : 'COMPLETED';
+                $insSession->execute([$simSessionId, $salesId, $targetDate, $startTimeStr, $currLat, $currLng, $sessStatus]);
+
+                $insGps = $pdo->prepare("INSERT INTO `gps_logs` (`gps_log_id`, `session_id`, `sales_id`, `timestamp`, `latitude`, `longitude`, `accuracy`, `speed`, `activity_status`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $insVisit = $pdo->prepare("INSERT INTO `visits` (`visit_id`, `sales_id`, `customer_id`, `session_id`, `check_in_time`, `check_in_lat`, `check_in_lng`, `check_in_accuracy`, `check_out_time`, `duration`, `result`, `note`, `status`, `distributed_qty`, `inventory_qty`, `reorder_demand`, `recorded_debt`, `payment_status`, `new_order_qty`, `selected_product`, `distributed_unit`, `inventory_unit`, `new_order_unit`, `distance_meters`, `is_within_geofence`, `order_total_amount`) VALUES (?, ?, ?, ?, ?, ?, ?, 9, ?, ?, ?, ?, 'COMPLETED', 2, 12, 'Đặt thêm nhớt định kỳ', 0, 'Thanh toán đủ', 4, 'Nhớt Xe Số KingPetro 20W50 (4 Thùng) [TEST]', 'Thùng', 'Thùng', 'Thùng', ?, 1, 5800000)");
+
+                $gpsSeq = 1;
+                $visitSeq = 1;
+                // Mốc mở ca tại văn phòng / nhà
+                $insGps->execute([
+                    "GPS-SIM-{$dateCompact}-{$salesId}-" . str_pad($gpsSeq++, 3, '0', STR_PAD_LEFT),
+                    $simSessionId,
+                    $salesId,
+                    date('Y-m-d H:i:s', $currTs),
+                    $currLat,
+                    $currLng,
+                    12,
+                    0,
+                    'STATIONARY'
+                ]);
+
+                $stopSummaries = [];
+                foreach ($stops as $stopIdx => $st) {
+                    $destLat = (float)$st['latitude'];
+                    $destLng = (float)$st['longitude'];
+                    $steps = 4;
+
+                    // Nội suy 4 điểm đang chạy xe máy (MOVING) trên chặng đường tới đại lý
+                    for ($i = 1; $i <= $steps; $i++) {
+                        $currTs += 240; // mỗi chặng con 4 phút
+                        $ratio = $i / ($steps + 1);
+                        $curveOffset = sin($ratio * M_PI) * 0.00055 * (($stopIdx % 2 === 0) ? 1 : -1);
+                        $wpLat = round($currLat + ($destLat - $currLat) * $ratio + $curveOffset, 6);
+                        $wpLng = round($currLng + ($destLng - $currLng) * $ratio - $curveOffset * 0.6, 6);
+                        $spd = round(6.8 + (($i % 3) * 0.9), 1); // ~25-31 km/h
+
+                        $insGps->execute([
+                            "GPS-SIM-{$dateCompact}-{$salesId}-" . str_pad($gpsSeq++, 3, '0', STR_PAD_LEFT),
+                            $simSessionId,
+                            $salesId,
+                            date('Y-m-d H:i:s', $currTs),
+                            $wpLat,
+                            $wpLng,
+                            14,
+                            $spd,
+                            'MOVING'
+                        ]);
+                    }
+
+                    // Đến trước cửa đại lý (cách tâm ~8-12m -> Đúng vị trí 100%)
+                    $currTs += 240;
+                    $arriveLat = round($destLat + 0.00006, 6);
+                    $arriveLng = round($destLng + 0.00005, 6);
+                    $arriveTimeStr = date('Y-m-d H:i:s', $currTs);
+
+                    $insGps->execute([
+                        "GPS-SIM-{$dateCompact}-{$salesId}-" . str_pad($gpsSeq++, 3, '0', STR_PAD_LEFT),
+                        $simSessionId,
+                        $salesId,
+                        $arriveTimeStr,
+                        $arriveLat,
+                        $arriveLng,
+                        9,
+                        0,
+                        'STATIONARY'
+                    ]);
+
+                    // Đứng chăm sóc tại cửa hàng 14 phút
+                    $currTs += 840;
+                    $leaveTimeStr = date('Y-m-d H:i:s', $currTs);
+                    $insGps->execute([
+                        "GPS-SIM-{$dateCompact}-{$salesId}-" . str_pad($gpsSeq++, 3, '0', STR_PAD_LEFT),
+                        $simSessionId,
+                        $salesId,
+                        $leaveTimeStr,
+                        $arriveLat,
+                        $arriveLng,
+                        10,
+                        0,
+                        'STATIONARY'
+                    ]);
+
+                    if ($includeVisits && strpos((string)$st['customer_id'], 'SIM-') !== 0) {
+                        $simVisitId = "VIS-SIM-{$dateCompact}-{$salesId}-" . str_pad($visitSeq++, 2, '0', STR_PAD_LEFT);
+                        $distM = calcDistanceMeters($arriveLat, $arriveLng, $destLat, $destLng);
+                        $insVisit->execute([
+                            $simVisitId,
+                            $salesId,
+                            $st['customer_id'],
+                            $simSessionId,
+                            $arriveTimeStr,
+                            $arriveLat,
+                            $arriveLng,
+                            $leaveTimeStr,
+                            14,
+                            'Có đơn đặt hàng mới',
+                            '[DỮ LIỆU TEST MÔ PHỎNG] Đã kiểm tồn kệ trưng bày & lên đơn mẫu (bấm Xóa Dữ Liệu Test để dọn sạch).',
+                            $distM
+                        ]);
+                    }
+
+                    $currLat = $arriveLat;
+                    $currLng = $arriveLng;
+                    $stopSummaries[] = [
+                        'customerId'   => $st['customer_id'],
+                        'customerName' => $st['customer_name'],
+                        'latitude'     => $destLat,
+                        'longitude'    => $destLng
+                    ];
+                }
+
+                $totalDurMins = max(15, (int)round(($currTs - strtotime($startTimeStr)) / 60));
+                if ($sessStatus === 'COMPLETED') {
+                    $pdo->prepare("UPDATE `work_sessions` SET `check_out_time` = ?, `check_out_lat` = ?, `check_out_lng` = ?, `work_duration` = ? WHERE `session_id` = ?")
+                        ->execute([date('Y-m-d H:i:s', $currTs), $currLat, $currLng, $totalDurMins, $simSessionId]);
+                } else {
+                    $pdo->prepare("UPDATE `work_sessions` SET `work_duration` = ? WHERE `session_id` = ?")
+                        ->execute([$totalDurMins, $simSessionId]);
+                }
+
+                $pdo->commit();
+                echo json_encode([
+                    'success'    => true,
+                    'sessionId'  => $simSessionId,
+                    'salesId'    => $salesId,
+                    'salesName'  => $salesUser['name'],
+                    'date'       => $targetDate,
+                    'gpsCount'   => $gpsSeq - 1,
+                    'visitCount' => $visitSeq - 1,
+                    'stops'      => $stopSummaries,
+                    'lastLat'    => $currLat,
+                    'lastLng'    => $currLng,
+                    'message'    => "Đã tạo lộ trình mô phỏng cho {$salesUser['name']} đi qua " . count($stopSummaries) . " đại lý (" . ($gpsSeq - 1) . " điểm GPS)!"
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (Throwable $ex) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $ex;
+            }
+            break;
+
+        case 'clearSimulatedRoutes':
+            requireAuth($pdo, $params, ['ADMIN']);
+            $pdo->beginTransaction();
+            try {
+                $delVisits = $pdo->prepare("DELETE FROM `visits` WHERE `visit_id` LIKE 'VIS-SIM-%' OR `session_id` LIKE 'SES-SIM-%'");
+                $delVisits->execute();
+                $vCnt = $delVisits->rowCount();
+
+                $delGps = $pdo->prepare("DELETE FROM `gps_logs` WHERE `gps_log_id` LIKE 'GPS-SIM-%' OR `session_id` LIKE 'SES-SIM-%'");
+                $delGps->execute();
+                $gCnt = $delGps->rowCount();
+
+                $delSess = $pdo->prepare("DELETE FROM `work_sessions` WHERE `session_id` LIKE 'SES-SIM-%'");
+                $delSess->execute();
+                $sCnt = $delSess->rowCount();
+
+                $pdo->commit();
+                echo json_encode([
+                    'success'         => true,
+                    'deletedSessions' => $sCnt,
+                    'deletedGps'      => $gCnt,
+                    'deletedVisits'   => $vCnt,
+                    'message'         => "Đã dọn sạch toàn bộ lộ trình Test ({$sCnt} ca mẫu, {$gCnt} điểm GPS, {$vCnt} lượt ghé thử)!"
+                ], JSON_UNESCAPED_UNICODE);
+            } catch (Throwable $ex) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $ex;
+            }
+            break;
+
         default:
             echo json_encode(['success' => false, 'message' => 'Action không hợp lệ: ' . $action], JSON_UNESCAPED_UNICODE);
             break;

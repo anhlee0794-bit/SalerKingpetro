@@ -1,5 +1,19 @@
 # CHANGELOG AI - SALES FIELD & CUSTOMER CARE MANAGEMENT
 
+## [2026-11-27] - Nâng Cấp Công Cụ "Test Di Chuyển" Thành Bộ Mô Phỏng Lộ Trình & Tuyến Đi Thực Tế Cho ADMIN
+- **Mục đích / Bối cảnh**: Nâng cấp nút `⚡ Test Di Chuyển` trên thanh công cụ `ADMIN` từ cơ chế nhảy tọa độ đơn điểm sang hộp thoại mô phỏng đầy đủ 2 chế độ: (1) Mô phỏng quãng đường chạy xe qua nhiều đại lý thực tế hiển thị ngay trên Bản đồ đường phố OSRM & Timeline, và (2) Đặt vị trí đứng trước 1 đại lý tùy chọn để test form Check-in, kèm nút dọn sạch dữ liệu test an toàn 100%.
+- **Các file thay đổi (Affected Files)**:
+  - `backend-php/api.php`:
+    - Bổ sung `simulateSalesRoute` (khóa cứng quyền `ADMIN`): Tự động nội suy các điểm GPS chạy xe dọc đường (`MOVING`, ~25–31 km/h) xen kẽ các điểm dừng tại cửa hàng (`STATIONARY`) và lượt Check-in mẫu (`VIS-SIM-*`) đi qua 2–4 đại lý thực tế mà không làm biến đổi công nợ/tồn kho thật của đại lý.
+    - Bổ sung `clearSimulatedRoutes` (khóa cứng quyền `ADMIN`): Dọn sạch 100% các bản ghi mang tiền tố `SES-SIM-%`, `GPS-SIM-%`, `VIS-SIM-%` mà không ảnh hưởng tới dữ liệu đi làm thật của nhân viên.
+  - `frontend/js/app.js` & `frontend/js/api.js`:
+    - Nâng cấp `App.simulateMovement()` mở hộp thoại trực quan 2 chế độ (`runRouteSimulation`, `teleportToCustomer`, `clearRouteSimulation`); sau khi bấm chạy mô phỏng sẽ tự động chuyển về Tab Bản đồ, chọn đúng nhân viên + ngày và phóng to vào đường lộ trình vừa tạo.
+  - `frontend/js/manager_app.js`: Hiển thị thêm chấm xanh lá (`🟢 Vị trí mới nhất của Sales`) ở đầu mũi tên lộ trình khi xem tuyến chi tiết của 1 nhân viên trên Bản đồ.
+  - `frontend/index.html` & `frontend/sw.js`: Nâng cache PWA lên `?v=20261127c`.
+  - `tests/test_logic.py`: Bổ sung `test_admin_route_simulation_and_safe_cleanup` (**34/34 PASS**).
+- **Kết quả kiểm thử & xác minh**:
+  - Pass **34/34** unit tests, `node --check` 9/9 file JS sạch lỗi, đồng bộ nguyên tử FTP lên `hiepphucduc.vn` và kiểm thử E2E tạo + xóa lộ trình mô phỏng thành công 100%.
+
 ## [2026-11-27] - Rà Soát Chéo Quy Trình Nghiệp Vụ Đầu-Cuối & Sửa 6 Điểm Đứt Luồng Vận Hành
 - **Mục đích / Bối cảnh**: Rà soát toàn diện quy trình nghiệp vụ thực tế từ lúc Sales mở ca ngoài đường đến khi Quản lý đối soát và phê duyệt trên văn phòng, phát hiện và khắc phục triệt để 6 lỗi đứt luồng tiềm ẩn.
 - **Các file thay đổi (Affected Files)**:
