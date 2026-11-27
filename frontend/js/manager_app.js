@@ -3223,24 +3223,24 @@ const ManagerApp = {
     const showAdminToolbar = !(rawAdminToolbar === 0 || rawAdminToolbar === "0" || rawAdminToolbar === false || String(rawAdminToolbar).toLowerCase() === "false");
 
     content.innerHTML = `
-      <div style="padding: 0.25rem;">
-        <div class="manager-sub-header" style="margin-bottom: 1.25rem;">
-          <div>
-            <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-              ${Icons.render('settings', { size: 22, color: '#4338ca' })} Cấu Hình Tham Số Vận Hành Hệ Thống
+      <div class="settings-page-wrap">
+        <div class="manager-sub-header" style="margin-bottom: 1.15rem;">
+          <div style="min-width: 0; flex: 1;">
+            <h2 style="font-size: 1.25rem; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              ${Icons.render('settings', { size: 22, color: '#4338ca' })} <span>Cấu Hình Tham Số Vận Hành Hệ Thống</span>
             </h2>
-            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 3px;">
               Chỉnh sửa chu kỳ định vị GPS, bán kính đối soát điểm bán và chu kỳ nhắc lịch chăm sóc khách hàng trên toàn hệ thống.
             </div>
           </div>
-          <button onclick="ManagerApp.saveSystemSettings()" class="btn-action-large btn-meet-customer" style="padding: 0.6rem 1.35rem; width: auto; font-weight: 700;">
+          <button onclick="ManagerApp.saveSystemSettings()" class="btn-action-large btn-meet-customer settings-save-top-btn" style="padding: 0.65rem 1.35rem; width: auto; font-weight: 700; font-size: 0.92rem;">
             💾 LƯU CẤU HÌNH HỆ THỐNG
           </button>
         </div>
 
-        <form onsubmit="event.preventDefault(); ManagerApp.saveSystemSettings();" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+        <form class="settings-form-grid" onsubmit="event.preventDefault(); ManagerApp.saveSystemSettings();">
           <!-- Khối 1: Định vị GPS & Lộ trình -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
+          <div class="settings-card">
             <h3 style="font-size: 1rem; font-weight: 700; color: #0369a1; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.4rem;">
               ${Icons.render('map-pin', { size: 18, color: '#0369a1' })} 1. Định Vị GPS & Giám Sát Di Chuyển
             </h3>
@@ -3252,27 +3252,27 @@ const ManagerApp = {
               </select>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
-              <div class="form-group">
+            <div class="settings-2col-row" style="margin-bottom: 0.85rem;">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label">Bán kính đối soát khách (Mét)</label>
                 <input type="number" id="cfg-customer-radius" class="form-control" value="${customerRadius}" min="10" max="5000" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label">Sai số GPS tối đa (Mét)</label>
                 <input type="number" id="cfg-gps-accuracy" class="form-control" value="${gpsAccuracyLimit}" min="10" max="500" required />
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem;">
-              <div class="form-group">
+            <div class="settings-3col-row">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.75rem;">Tốc độ di chuyển (m/s)</label>
                 <input type="number" step="0.1" id="cfg-moving-speed" class="form-control" value="${movingSpeed}" min="0.5" max="20" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.75rem;">Ngưỡng đứng yên (Mét)</label>
                 <input type="number" id="cfg-stationary-dist" class="form-control" value="${stationaryDist}" min="5" max="300" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.75rem;">Cảnh báo dừng lâu (Phút)</label>
                 <input type="number" id="cfg-stationary-time" class="form-control" value="${stationaryTime}" min="5" max="240" required />
               </div>
@@ -3281,11 +3281,11 @@ const ManagerApp = {
             <div style="border-top: 1px dashed var(--border); padding-top: 0.85rem; margin-top: 0.85rem;">
               <div style="font-size: 0.82rem; font-weight: 700; color: #0f766e; margin-bottom: 0.45rem;">🧹 Tự Động Dọn Rác Bảng GPS (<code>gps_logs</code>):</div>
               <div style="display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap;">
-                <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+                <div class="form-group" style="flex: 1; min-width: 140px; margin-bottom: 0;">
                   <label class="form-label" style="font-size:0.75rem;">Giữ tọa độ thô trong (Ngày)</label>
                   <input type="number" id="cfg-gps-retention" class="form-control" value="${gpsRetentionDays}" min="7" max="365" required />
                 </div>
-                <button type="button" class="btn-action-inline" onclick="ManagerApp.handleCleanupGpsLogs()" style="padding: 0.55rem 0.85rem; background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; font-weight: 700;">
+                <button type="button" class="btn-action-inline" onclick="ManagerApp.handleCleanupGpsLogs()" style="padding: 0.6rem 0.85rem; background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; font-weight: 700;">
                   🧹 Dọn rác GPS cũ ngay
                 </button>
               </div>
@@ -3296,36 +3296,36 @@ const ManagerApp = {
           </div>
 
           <!-- Khối 2: Chu kỳ chăm sóc khách hàng -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem;">
+          <div class="settings-card">
             <h3 style="font-size: 1rem; font-weight: 700; color: #059669; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.4rem;">
               ${Icons.render('users', { size: 18, color: '#059669' })} 2. Chu Kỳ Nhắc Chăm Sóc Khách Hàng
             </h3>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin-bottom: 0.85rem;">
-              <div class="form-group">
+            <div class="settings-3col-row" style="margin-bottom: 0.85rem;">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label">Khách VIP (Ngày)</label>
                 <input type="number" id="cfg-cycle-vip" class="form-control" value="${cycleVip}" min="1" max="90" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label">Khách Thường (Ngày)</label>
                 <input type="number" id="cfg-cycle-normal" class="form-control" value="${cycleNormal}" min="1" max="90" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label">Khách Nhỏ (Ngày)</label>
                 <input type="number" id="cfg-cycle-small" class="form-control" value="${cycleSmall}" min="1" max="180" required />
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; margin-bottom: 0.85rem;">
-              <div class="form-group">
+            <div class="settings-3col-row" style="margin-bottom: 0.85rem;">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.76rem;">Báo sắp hạn trước (Ngày)</label>
                 <input type="number" id="cfg-overdue-warn" class="form-control" value="${overdueWarn}" min="1" max="15" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.76rem;">Cảnh báo điểm gần (Mét)</label>
                 <input type="number" id="cfg-proximity-alert" class="form-control" value="${proximityAlert}" min="20" max="1000" required />
               </div>
-              <div class="form-group">
+              <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-size:0.76rem;">Chỉ tiêu ghé/ngày (Điểm)</label>
                 <input type="number" id="cfg-daily-target" class="form-control" value="${dailyVisitTarget}" min="1" max="50" required />
               </div>
@@ -3333,12 +3333,12 @@ const ManagerApp = {
 
             <div style="border-top: 1px dashed var(--border); padding-top: 0.85rem; margin-top: 0.5rem;">
               <div style="font-size: 0.82rem; font-weight: 700; color: #7e22ce; margin-bottom: 0.5rem;">⚡ Tự động Check-in Ngầm (Dwell Time):</div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                <div class="form-group">
+              <div class="settings-2col-row">
+                <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="font-size:0.76rem;">Bán kính nhận diện dừng (Mét)</label>
                   <input type="number" id="cfg-dwell-radius" class="form-control" value="${dwellRadius}" min="10" max="200" required />
                 </div>
-                <div class="form-group">
+                <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="font-size:0.76rem;">Thời gian dừng tối thiểu (Phút)</label>
                   <input type="number" id="cfg-dwell-minutes" class="form-control" value="${dwellThreshold}" min="1" max="60" required />
                 </div>
@@ -3347,25 +3347,38 @@ const ManagerApp = {
           </div>
 
           <!-- Khối 3: Phân Quyền Giao Diện & Công Cụ Kiểm Thử ADMIN -->
-          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; grid-column: 1 / -1;">
+          <div class="settings-card" style="grid-column: 1 / -1;">
             <h3 style="font-size: 1rem; font-weight: 700; color: #4338ca; margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.45rem;">
               ${Icons.render('shield-check', { size: 19, color: '#4338ca' })} 3. Phân Quyền Hiển Thị Công Cụ ADMIN
             </h3>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;">
-              <div style="flex: 1; min-width: 260px;">
-                <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-main);">
+            <div class="admin-toolbar-toggle-box">
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-main); line-height: 1.35;">
                   Thanh "Công cụ ADMIN" trên đầu trang (Chuyển góc nhìn vai trò, Bảng RBAC & Test Di Chuyển)
                 </div>
-                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.45;">
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; line-height: 1.45;">
                   • Chỉ áp dụng riêng cho tài khoản gốc <strong>ADMIN</strong> (Nhân viên Sales và Quản lý luôn bị ẩn 100%).<br>
-                  • Khi <strong>TẮT</strong>, giao diện của ADMIN sẽ gọn sạch hoàn toàn cho vận hành thực tế; bạn có thể quay lại Tab Cài Đặt Hệ Thống này để <strong>BẬT</strong> lại bất cứ lúc nào.
+                  • Khi <strong>TẮT</strong>, giao diện của ADMIN sẽ gọn sạch hoàn toàn cho vận hành thực tế; bạn có thể quay lại đây để <strong>BẬT</strong> lại bất cứ lúc nào.
                 </div>
               </div>
-              <div style="display: flex; align-items: center; gap: 0.65rem;">
-                <select id="cfg-show-admin-toolbar" class="form-control" style="width: auto; font-weight: 700; padding: 0.55rem 0.9rem; border-color: ${showAdminToolbar ? '#10b981' : '#94a3b8'};" onchange="ManagerApp.onToggleAdminToolbarQuick(this.value)">
-                  <option value="1" ${showAdminToolbar ? 'selected' : ''}>🟢 ĐANG BẬT (Hiển thị thanh Công cụ ADMIN)</option>
-                  <option value="0" ${!showAdminToolbar ? 'selected' : ''}>⚪ ĐANG TẮT (Ẩn gọn thanh Công cụ ADMIN)</option>
-                </select>
+              <div class="admin-toolbar-toggle-group" role="group" aria-label="Bật hoặc tắt thanh Công cụ ADMIN">
+                <input type="hidden" id="cfg-show-admin-toolbar" value="${showAdminToolbar ? '1' : '0'}" />
+                <button
+                  type="button"
+                  id="btn-admin-tb-on"
+                  class="admin-tb-switch-btn ${showAdminToolbar ? 'active-on' : ''}"
+                  onclick="ManagerApp.onToggleAdminToolbarQuick(1)"
+                >
+                  🟢 Đang Bật
+                </button>
+                <button
+                  type="button"
+                  id="btn-admin-tb-off"
+                  class="admin-tb-switch-btn ${!showAdminToolbar ? 'active-off' : ''}"
+                  onclick="ManagerApp.onToggleAdminToolbarQuick(0)"
+                >
+                  ⚪ Đang Tắt
+                </button>
               </div>
             </div>
           </div>
@@ -3375,11 +3388,16 @@ const ManagerApp = {
   },
 
   async onToggleAdminToolbarQuick(val) {
-    const enabled = String(val) === "1";
-    const sel = document.getElementById("cfg-show-admin-toolbar");
-    if (sel) {
-      sel.style.borderColor = enabled ? "#10b981" : "#94a3b8";
+    const enabled = String(val) === "1" || val === 1 || val === true;
+    const hiddenEl = document.getElementById("cfg-show-admin-toolbar");
+    if (hiddenEl) {
+      hiddenEl.value = enabled ? "1" : "0";
     }
+    const btnOn = document.getElementById("btn-admin-tb-on");
+    const btnOff = document.getElementById("btn-admin-tb-off");
+    if (btnOn) btnOn.classList.toggle("active-on", enabled);
+    if (btnOff) btnOff.classList.toggle("active-off", !enabled);
+
     if (typeof App !== "undefined" && typeof App.setAdminToolbarEnabled === "function") {
       await App.setAdminToolbarEnabled(enabled, true);
     }

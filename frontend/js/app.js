@@ -230,7 +230,7 @@ const App = {
   registerPwaServiceWorker() {
     if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js?v=20261127g").catch((err) => {
+        navigator.serviceWorker.register("./sw.js?v=20261127h").catch((err) => {
           console.warn("[PWA] Service Worker registration skipped:", err.message);
         });
       });
